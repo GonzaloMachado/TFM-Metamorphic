@@ -1,0 +1,70 @@
+  {% load i18n widget_tweaks %}
+  {% load i18n widget_tweaks %}
+  <div class="modal-header">
+    <h5 class="modal-title">Create Database Instance</h5>
+    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+      <span aria-hidden="true">&times;</span>
+    </button>
+  </div>
+<form id="createDBForm" method="post" class="form-signin" action="{% url 'metamorphic:validate_db' %}"
+autocomplete="off">
+
+  <div class="modal-body">
+  {% csrf_token %}
+    {% for field in form %}
+    <div class="form-group{% if field.errors %} invalid{% endif %}">
+          <div class="form-label-group">
+        {{ field.errors }}
+        {{ field  }}
+        <label for="{{field.id_for_label}}">{{ field.label }}</label>
+    </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+    <button type="submit" class="submit-btn btn btn-primary">Create</button>
+  </div>
+  </form>
+
+
+<script type="text/javascript">
+$(document).ready(function() {
+    $('#createDBForm').submit(function(e) {
+        e.preventDefault();
+        $.ajax({
+            data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: $(this).attr('method'),
+            url: $(this).attr('action'),
+
+            success: function (data) {
+                      $.ajax({
+            data: $('#createDBForm')+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: "POST",
+            url: "{% url 'metamorphic:create_db' %}",
+
+            success: function (data) {
+              swal({
+            title: "{% trans 'Good Job' %}",
+            text: "{% trans 'Your instance has been created successfully' %}",
+            icon: "success"
+        }).then((value) =>{
+               location.reload();
+});
+            
+            }, 
+            error : function(data) {
+                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
+            }
+            });
+            
+            }, 
+            error : function(data) {
+                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
+            }
+            });
+        });
+});
+</script>
+

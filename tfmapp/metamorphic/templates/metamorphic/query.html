@@ -1,0 +1,189 @@
+{% extends 'metamorphic/index.html' %}
+
+{% load static i18n widget_tweaks %}    
+
+{% block icon %}
+    <i class="fa fa-plug icon-gradient bg-malibu-beach">
+    </i>
+{% endblock%}
+
+{% block title %}
+    {% trans 'Query.' %}
+{% endblock %}
+
+{% block titledescription %}
+    {% trans 'Create or select a query.' %}
+{% endblock %}
+
+{% block content %}
+
+<div class="row">
+<div class="col-md-12">
+    <div class="main-card mb-3 card">
+        <div class="card-header">{% trans 'Queries' %}
+        <div class="btn-actions-pane-right">
+            <div role="group" class="btn-group-sm btn-group">
+                <a onclick="createQuery()" class="btn btn-success" data-toggle="modal" href="#myModal"
+                        data-target="#myModal"> <i class="fa fa-plus"></i> {% trans 'Add Query' %} </a>
+            </div>
+        </div>
+        </div>
+        <div class="table-responsive">
+            <table  id="queryTable" class="align-middle mb-0 table table-borderless table-striped table-hover">
+                <thead>
+                <tr>
+                    <th class="text-center">Query</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for query in all_queries %}
+                <tr>
+                    <td class="text-center" data-placement="bottom" data-toggle="tooltip" data-original-title="{{query.query_text}}">
+                    <a onclick="showQuery({{query.id}})" data-toggle="modal" href="#myModal"
+                        data-target="#myModal"> {{query.query_id}} </a>
+                </td>
+                <td class="text-center">
+                     {% if user == query.user %} 
+                        <button type="button" onclick="editQuery({{query.id}})" class="btn btn-warning"  data-target="#myModal" data-toggle="modal">
+                            <span class="fa fa-pencil"></span>
+                        </button>            
+                        <button onclick="deleteQuery({{query.id}})" type="submit" class="btn btn-danger"><i class="fa fa-trash"> </i></button>
+                        {% endif %}                  
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        </div>
+    </div>
+</div>
+
+
+
+{% endblock  %}
+
+{% block modal %}
+
+<div class="bootstrap-modal modal fade in" id="myModal" style="display: none;">
+<div class="modal-dialog" role="document"> 
+    <div class="modal-content">
+    </div>
+
+</div>
+</div>
+
+
+{% endblock  %}
+
+
+
+{% block javascript %}
+
+<script>
+
+  $(document).ready(function() {
+    $('#queryTable').DataTable( {
+      "paging": false,
+      "info": false,
+      "searching": false } ) ;
+} );
+</script>
+
+
+
+<script>
+    function createQuery() {
+       $.ajax({
+          url: "create/",
+          method: 'GET',
+          dataType: 'html',
+          success: function(formHtml){
+            $('#myModal').find('.modal-content').html(formHtml);
+          },
+       });
+
+      return false;
+    }
+</script>
+
+<script>
+    function showQuery(queryId) {
+       $.ajax({
+          url: queryId + "/show/",
+          method: 'GET',
+          dataType: 'html',
+          success: function(formHtml){
+            $('#myModal').find('.modal-content').html(formHtml);
+          },
+       });
+
+      return false;
+    }
+</script>
+
+
+<script>
+    function editQuery(queryId) {
+       $.ajax({
+          url: queryId + "/edit/",
+          method: 'GET',
+          dataType: 'html',
+          success: function(formHtml){
+            $('#myModal').find('.modal-content').html(formHtml);
+          },
+       });
+
+      return false;
+    }
+</script>
+
+
+  <script> 
+  function deleteQuery(instanceId) {
+    var csrftoken = '{{ csrf_token }}'
+              swal({
+                title: "{% trans 'Are you sure?' %}",
+                text: "{% trans 'You will not be able to recover this query!' %}",
+                icon: "warning",
+                buttons: ["{% trans 'No, cancel' %}", "{% trans 'Yes, delete!' %}"],
+                closeOnClickOutside: false,
+                dangerMode: true,
+            }).then((willDelete) => {
+  if (willDelete) {
+                    $.ajax({
+            url :  instanceId +"/delete/",
+            type : "POST",
+            data : {
+                csrfmiddlewaretoken: csrftoken
+            },
+            success: function (data) {
+swal({
+            title: "{% trans 'Deleted' %}",
+            text: "{% trans 'The query has been succesfully deleted' %}",
+            icon: "success"
+        }).then((value) =>{
+               location.reload();
+});
+            
+            },  
+            error : function() {
+                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
+            }
+
+      })
+  } else {
+   swal({
+            title: "{% trans 'Cancelled' %}",
+            icon: "info"
+        });
+  }
+});
+
+          }
+  </script>
+
+    
+
+{% endblock %}

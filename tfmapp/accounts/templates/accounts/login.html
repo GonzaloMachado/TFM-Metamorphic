@@ -1,0 +1,59 @@
+{% extends "accounts/registration_base.html" %}}
+{% load static i18n widget_tweaks %}
+
+{% block title%} 
+METAMORPHIC - LOGIN
+{% endblock %}
+
+{% block content%}
+    <form class="form-signin" method="post">
+      <div class="text-center mb-4">
+    <img class="mb-2" src="{% static '/metamorphic/assets/images/logo-inversed.png' %}" alt="" width="240">
+    <h1 class="h3 mb-3 font-weight-normal">Welcome</h1>
+    <p>{% trans 'Please login or register, to start using our tool' %} </p>
+  </div>
+
+      {% csrf_token %}
+  <p>
+      {% for error in form.field.errors %}
+            <p style="color: red">{{ error }}</p>
+      {% endfor %}
+    {% if form.non_field_errors %}
+      <div style="color: red">
+        <p>{{form.non_field_errors}}</p>
+      </div>
+    {% endif %}
+  </p>
+
+    <div class="form-label-group">
+
+        {% render_field form.username  class+='form-control' placeholder='Username' %}
+        <label for="{{form.username.id_for_label}}">{{ form.username.label }}</label>
+    </div>
+
+    <div class="form-label-group">
+        {% render_field form.password  class+='form-control' placeholder='Password' %}
+        <label for="{{form.password.id_for_label}}">{{ form.password.label }}</label>
+    </div>
+
+    <div class="text-center mb-3">
+    <a href="/account/password_reset/">{% trans 'I forgot my password' %}</a><br>
+    <a href="/account/signup" class="text-center">{% trans 'Register a new membership' %}</a>
+  </div>
+
+    <button class="btn btn-lg btn-primary btn-block" type="submit">Log In</button>
+</form>
+
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+

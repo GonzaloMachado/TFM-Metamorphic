@@ -1,0 +1,109 @@
+  {% load i18n %}
+  <div class="modal-header">
+    <h5 class="modal-title">Create Query</h5>
+    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+      <span aria-hidden="true">&times;</span>
+    </button>
+  </div>
+    <form id="createQueryForm" method="post" class="form-signin" action="{% url 'metamorphic:validate_query' %}">
+  <div class="modal-body">
+  {% csrf_token %}
+      <div class="form-group">
+        <div class="form-label-group">
+        {{ form.query_id }}
+        <label for="{{form.query_id.id_for_label}}">{{form.query_id.label}}</label>
+      </div>
+    </div>
+
+    <div class="form-label-group">
+      <div class="form-group">
+        <label for="{{form.query_text.id_for_label}}">{{form.query_text.label}}</label>
+        {{form.query_text}}
+        
+      </div>
+    </div>
+
+    <div class="form-label-group">
+      <div class="form-group">
+        <label for="{{form.instance.id_for_label}}">{{form.instance.label}}</label>
+        {{form.instance}}
+      </div>
+    </div>
+
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+    <button type="submit" class="submit-btn btn btn-primary">Create</button>
+  </div>
+
+
+
+</form>
+
+<script type="text/javascript">
+$(document).ready(function() {
+    $('#createQueryForm').submit(function(e) {
+        e.preventDefault();
+        $.ajax({
+            data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: $(this).attr('method'),
+            url: $(this).attr('action'),
+
+            success: function (data) {
+swal({
+            title: "{% trans 'Created' %}",
+            text: "{% trans 'The query has been succesfully created' %}",
+            icon: "success"
+        }).then((value) =>{
+               location.reload();
+});
+            
+            }, 
+            error : function() {
+                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
+            }
+            });
+        });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function() {
+    $('#createQueryForm').submit(function(e) {
+        e.preventDefault();
+        $.ajax({
+            data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: $(this).attr('method'),
+            url: $(this).attr('action'),
+
+            success: function (data) {
+                      $.ajax({
+            data: $('#createQueryForm').serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: "POST",
+            url: "{% url 'metamorphic:create_query' %}",
+
+            success: function (data) {
+              swal({
+            title: "{% trans 'Good Job' %}",
+            text: "{% trans 'Your query has been created successfully' %}",
+            icon: "success"
+        }).then((value) =>{
+               location.reload();
+});
+            
+            }, 
+            error : function(data) {
+                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
+            }
+            });
+            
+            }, 
+            error : function(data) {
+                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
+            }
+            });
+        });
+});
+</script>
+

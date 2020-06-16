@@ -1,0 +1,58 @@
+  {% load i18n widget_tweaks %}
+  <div class="modal-header">
+    <h5 class="modal-title">Update Database Instance</h5>
+    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+      <span aria-hidden="true">&times;</span>
+    </button>
+  </div>
+<form id="updateDBForm" method="post" class="form-signin" action="{% url 'metamorphic:edit_db' dbinstance.id %}">
+
+  <div class="modal-body">
+  {% csrf_token %}
+    {% for field in form %}
+    <div class="form-group{% if field.errors %} invalid{% endif %}">
+          <div class="form-label-group">
+        {{ field.errors }}
+        {{ field  }}
+        <label for="{{field.id_for_label}}">{{ field.label }}</label>
+    </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+    <button type="submit" class="submit-btn btn btn-primary">Update</button>
+  </div>
+  </form>
+
+
+<script type="text/javascript">
+$(document).ready(function() {
+    $('#updateDBForm').submit(function(e) {
+        e.preventDefault();
+        $.ajax({
+            data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
+            type: $(this).attr('method'),
+            url: $(this).attr('action'),
+
+            success: function (data) {
+swal({
+            title: "{% trans 'Good Job' %}",
+            text: "{% trans 'Your database instance has been updated successfully' %}",
+            icon: "success"
+        }).then((value) =>{
+               location.reload();
+});
+            },
+
+            error : function() {
+                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
+            }
+            });
+        });
+});
+</script>
+
+
+

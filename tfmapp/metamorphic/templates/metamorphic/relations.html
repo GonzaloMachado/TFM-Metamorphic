@@ -1,0 +1,78 @@
+{% extends 'metamorphic/index.html' %}
+
+{% load static i18n widget_tweaks %}    
+
+{% block icon %}
+    <i class="fa fa-project-diagram icon-gradient bg-malibu-beach">
+    </i>
+{% endblock%}
+
+{% block title %}
+    {% trans 'Metamorphic Relations.' %}
+{% endblock %}
+
+{% block titledescription %}
+    {% trans 'Select a query.' %}
+{% endblock %}
+
+{% block content %}
+
+<div class="row">
+<div class="col-md-12">
+    <div class="main-card mb-3 card">
+        <div class="card-header">{% trans 'Relations' %}
+        <div class="btn-actions-pane-right">
+            <div role="group" class="btn-group-sm btn-group">
+            </div>
+        </div>
+        </div>
+        <div class="table-responsive">
+            <table class="align-middle mb-0 table table-borderless table-striped table-hover">
+                <thead>
+                </thead>
+                <tbody>
+                    <tr>
+                    <td class="text-center">
+                      <div class="position-relative form-group">
+                        <label for="exampleCustomSelect" class="">Query Selection</label>
+                        <select type="select" id="queriesSelect" name="queriesSelect" class="custom-select">
+                              {% for query in all_queries %}
+                                  <option value="{{ query.pk }}">{{query.query_id}}   -   {{ query.query_text }}</option>
+                              {% endfor %}
+                        </select>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+            </table>
+        </div>
+        </div>
+    </div>
+</div>
+
+
+
+{% endblock  %}
+
+{% block modal %}
+
+
+
+<div class="bootstrap-modal modal fade in" id="myModal" style="display: none;">
+<div class="modal-dialog" role="document"> 
+    <div class="modal-content">
+    </div>
+
+</div>
+</div>
+
+
+{% endblock  %}
+
+
+
+{% block javascript %}
+
+    
+
+{% endblock %}
