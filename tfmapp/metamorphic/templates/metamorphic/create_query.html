@@ -5,7 +5,7 @@
       <span aria-hidden="true">&times;</span>
     </button>
   </div>
-    <form id="createQueryForm" method="post" class="form-signin" action="{% url 'metamorphic:validate_query' %}">
+    <form id="createQueryForm" method="post" class="form-signin" action="{% url 'metamorphic:create_query' %}">
   <div class="modal-body">
   {% csrf_token %}
       <div class="form-group">
@@ -51,40 +51,7 @@ $(document).ready(function() {
             url: $(this).attr('action'),
 
             success: function (data) {
-swal({
-            title: "{% trans 'Created' %}",
-            text: "{% trans 'The query has been succesfully created' %}",
-            icon: "success"
-        }).then((value) =>{
-               location.reload();
-});
-            
-            }, 
-            error : function() {
-                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
-            }
-            });
-        });
-});
-</script>
-
-<script type="text/javascript">
-$(document).ready(function() {
-    $('#createQueryForm').submit(function(e) {
-        e.preventDefault();
-        $.ajax({
-            data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
-            type: $(this).attr('method'),
-            url: $(this).attr('action'),
-
-            success: function (data) {
-                      $.ajax({
-            data: $('#createQueryForm').serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
-            type: "POST",
-            url: "{% url 'metamorphic:create_query' %}",
-
-            success: function (data) {
-              swal({
+                         swal({
             title: "{% trans 'Good Job' %}",
             text: "{% trans 'Your query has been created successfully' %}",
             icon: "success"
@@ -94,13 +61,7 @@ $(document).ready(function() {
             
             }, 
             error : function(data) {
-                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
-            }
-            });
-            
-            }, 
-            error : function(data) {
-                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
+                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.__all__}`, "error");
             }
             });
         });

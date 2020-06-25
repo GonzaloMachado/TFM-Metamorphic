@@ -12,52 +12,6 @@ import psycopg2
 import simplejson
 # Create your views here.
 
-
-def validate_instance(request):
-    data = {}
-    data['host'] = request.POST['host']
-    data['port'] = request.POST['port']
-    data['database'] = request.POST['db_name']
-    data['password'] = request.POST['db_password']
-    data['user'] = request.POST['db_user']
-
-    try:
-        conn = psycopg2.connect(**data)
-        response = JsonResponse({"success": "Good to go"})
-        response.status_code = 200
-    except Exception as error:
-        response = JsonResponse({"error": error.args[0]})
-        response.status_code = 500
-
-    return response
-
-
-def validate_query(request):
-    data = {}
-    instance_id = request.POST['instance']
-    current_statement = request.POST['query_text']
-    current_instance = DBInstance.objects.get(pk=instance_id)
-    data['host'] = current_instance.host
-    data['port'] = current_instance.port
-    data['database'] = current_instance.db_name
-    data['password'] = current_instance.db_password
-    data['user'] = current_instance.db_user
-
-    try:
-        conn = psycopg2.connect(**data)
-        cur = conn.cursor()
-        postgreSQL_select_Query = current_statement
-        cur.execute(postgreSQL_select_Query)
-        response = JsonResponse({"success": "Good to go"})
-        response.status_code = 200
-    except Exception as error:
-        response = JsonResponse({"error": error.args[0]})
-        response.status_code = 500
-
-    return response
-
-
-
 class AjaxableResponseMixin:
     """
     Mixin to add AJAX support to a form.

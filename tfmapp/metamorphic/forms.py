@@ -1,6 +1,7 @@
 from django import forms
 from .models import DBInstance, Query
 from django.utils.translation import ugettext_lazy as _
+from .utils import db_connection, check_statement
 
 
 class DBInstanceForm(forms.ModelForm):
@@ -23,6 +24,21 @@ class DBInstanceForm(forms.ModelForm):
         }
 
 
+    def clean(self):
+      cleaned_data = super().clean()
+      data = dict()
+      data["database"] = cleaned_data.get("db_name")
+      data["user"] = cleaned_data.get("db_user")
+      data["password"] = cleaned_data.get("db_password")
+      data["host"] = cleaned_data.get("host")
+      data["port"] = cleaned_data.get("port")
+      result = db_connection(data)
+      if not result["status"]:
+        raise forms.ValidationError(result["error"])
+      return cleaned_data
+
+
+
 class QueryForm(forms.ModelForm):
     class Meta:
         model = Query      
@@ -37,6 +53,21 @@ class QueryForm(forms.ModelForm):
            'query_text': forms.Textarea(attrs={'class': 'form-control', 'type': 'text', 'style': 'resize: none;'}),
            'instance': forms.Select(attrs={'class': 'form-control', 'type': 'select'}),
         }
+
+    def clean(self):
+      cleaned_data = super().clean()
+      data = dict()
+      myInstance = cleaned_data.get("instance")
+      statement = cleaned_data.get("query_text")
+      data["database"] = myInstance.db_name
+      data["user"] = myInstance.db_user
+      data["password"] = myInstance.db_password
+      data["host"] = myInstance.host
+      data["port"] = myInstance.port
+      result = check_statement(data, statement)
+      if not result["status"]:
+        raise forms.ValidationError(result["error"])
+      return cleaned_data
 
 
 class QueryTextForm(forms.ModelForm):

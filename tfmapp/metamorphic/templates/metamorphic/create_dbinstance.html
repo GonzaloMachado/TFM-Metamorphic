@@ -6,7 +6,7 @@
       <span aria-hidden="true">&times;</span>
     </button>
   </div>
-<form id="createDBForm" method="post" class="form-signin" action="{% url 'metamorphic:validate_db' %}"
+<form id="createDBForm" method="post" class="form-signin" action="{% url 'metamorphic:create_db' %}"
 autocomplete="off">
 
   <div class="modal-body">
@@ -37,31 +37,17 @@ $(document).ready(function() {
             data: $(this).serialize()+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
             type: $(this).attr('method'),
             url: $(this).attr('action'),
-
             success: function (data) {
-                      $.ajax({
-            data: $('#createDBForm')+'&'+$.param({'csrfmiddlewaretoken' : '{{csrf_token}}' }),
-            type: "POST",
-            url: "{% url 'metamorphic:create_db' %}",
-
-            success: function (data) {
-              swal({
+                         swal({
             title: "{% trans 'Good Job' %}",
             text: "{% trans 'Your instance has been created successfully' %}",
             icon: "success"
         }).then((value) =>{
                location.reload();
 });
-            
             }, 
             error : function(data) {
-                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
-            }
-            });
-            
-            }, 
-            error : function(data) {
-                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.error}`, "error");
+                sweetAlert("{% trans 'Oops...' %}", `${data.responseJSON.__all__}`, "error");
             }
             });
         });
