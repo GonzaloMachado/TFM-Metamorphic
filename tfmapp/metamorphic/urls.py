@@ -15,4 +15,5 @@ urlpatterns = [
     path('queries/<int:query_id>/edit/', views.QueryUpdateView.as_view(), name='edit_query'),
     path('queries/<int:query_id>/delete/', views.QueryDeleteView.as_view(), name='delete_query'),
     path('relations/', views.RelationsView.as_view(), name='relations'),
+    path('relations/<int:query_id>/process/', views.get_query, name='relations_process'),
 ]

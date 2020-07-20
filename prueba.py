@@ -1,7 +1,9 @@
 from psqlparse import parse, nodes
+from pglast import parse_sql, Node
+from prueba_db import check_all_nullables_in_instance, check_nullable_column
 
 import printer, prueba_db
-
+import six
 
 DEFINED_CASES = {}
 "Registry of specialized printers."
@@ -15,21 +17,31 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    query_string = "select a from ta where x < (select t.col from t where c)"
+    query_string = "select a from ta where not x < any(select ka from tb)"
     print(query_string)
     """Probar que el statement sea valido en la BD (Ya incluye sintaxis)"""
     #prueba_db.check_statement(query_string)
     """Se obtiene el parsed tree"""
     parsed_tree = parse(query_string)
-    # """se limpia el arbol"""
+    """se limpia el arbol"""
     # allData = list()
     # for statement in parsed_tree:
     #     allData.append(clean_tree(statement))
     """Se buscan los casos y se hacen transformaciones"""
     # equivalent = select_match_case(allData[0])
-    serialized = printer.serialize(parsed_tree)
-    equivalent2 = select_match_case_2(parsed_tree[0])
-    print(serialized)
+
+    root = parse_sql('select a from ta where x < (select t.col from t where c)')
+    #print(root)
+    root2 = Node(root)
+    #print(root2)
+    myStruct2 = clean_tree2(parsed_tree[0])
+    myStruct = clean_tree(parsed_tree[0])
+    # propagate_nullable(root[0]['RawStmt']['stmt']['SelectStmt'])
+    # propagate_nullable(parsed_tree[0])
+    propagate_nullable(parsed_tree[0])
+    #serialized = printer.serialize(parsed_tree)
+    #equivalent2 = select_match_case_2(parsed_tree[0])
+    # print(serialized)
     # other = parse(equivalent)
     print('done')
 
@@ -47,10 +59,10 @@ def clean_tree(statement):
                 _fields.append(a_expr_type(targetList.val))
             elif isinstance(targetList.val, nodes.FuncCall):
                 _fields.append(func_call_type(targetList.val))
-        statement_dict['fields'] = _fields
+        statement_dict['select'] = _fields
     if statement.from_clause:
         _tables = range_var_type(statement.from_clause)
-        statement_dict['tables'] = _tables
+        statement_dict['from'] = _tables
     if statement.where_clause:
         # where_list = []
         if isinstance(statement.where_clause, nodes.SubLink):
@@ -76,12 +88,43 @@ def clean_tree(statement):
     return statement_dict
 
 
-def propagate_nullable():
-    pass
+def clean_tree2(statement):
+    """Function to extract most important information from the parsed tree"""
+    """Se puede mejorar usando decoradores, en vez de if/elif???????????"""
+    # statement_dict = dict()
+    # statement_dict['select'] = statement.target_list
+    # statement_dict['from'] = statement.from_clause
+    # statement_dict['where'] = statement.where_clause
+    tree = list()
+    tree.append(statement.target_list)
+    tree.append(statement.from_clause)
+    tree.append(statement.where_clause)
+    return tree
 
 
-def get_nullable_state():
-    pass
+def propagate_nullable(tree):
+    results = list()
+    i = 0
+    nullable = None
+    for attr in six.itervalues(tree.__dict__):
+        if isinstance(attr, list):
+            for item in attr:
+                if isinstance(item, nodes.Node):
+                    results.append(item.get_nullable_state())
+        elif isinstance(attr, nodes.Node):
+            results.append(attr.get_nullable_state())
+    if any(results):
+        tree.nullable = True
+
+    nullable_results = None
+    nullable_contents = None
+
+
+
+def get_nullable_state(current_node, results):
+    nullable = current_node.get_nullable_state()
+    print(nullable)
+    return nullable
 
 
 def get_case_for_node(node):
@@ -112,9 +155,8 @@ def select_match_case_2(statement):
     changes = []
     if statement.target_list is not None:
         for position, current_target in enumerate(statement.target_list):
-            # if isinstance(current_target.val, nodes.AExpr):
-            detected_case = get_case_for_node(current_target.val)
-            if detected_case:
+            if isinstance(current_target.val, nodes.AExpr):
+                detected_case = caso_uno(current_target.val)
                 current_change = save_changes(current_target, position, detected_case)
                 changes.append(current_change)
                 statement.target_list[position] = current_change['change']
@@ -123,33 +165,34 @@ def select_match_case_2(statement):
             else:
                 print("No cases found in target_list")
     if statement.where_clause is not None:
-        # HAY QUE MEJORAR EL MATCH DEL CASO
-        # Funcion que se encargue de los SubLink?
+        """HAY QUE MEJORAR EL MATCH DEL CASO"""
+        """Funcion que se encargue de los SubLink?"""
         if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
             where_compuesto_bool(statement.where_clause)
         elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
-            where_other(statement.where_clause)
+            statement.where_clause = where_other(statement.where_clause)
+            print(printer.serialize([statement]))
+            """Ya se cambió a STR *error*"""
+            # select_match_case_2(statement.where_clause.rexpr.subselect)
         elif isinstance(statement.where_clause, nodes.SubLink):
             where_compuesto(statement.where_clause)
         else:
-            # NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE
+            """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
             statement.where_clause = where_simple(statement.where_clause)
             serialized = printer.serialize([statement])
             print(serialized)
-            # HAY QUE GUARDAR EL CAMBIO
+            """HAY QUE GUARDAR EL CAMBIO"""
     return changes
 
 
 def save_changes(current_target, position, detected_case):
     current_change = dict()
-    equivalent = detected_case(current_target.val)
     current_change['node'] = current_target
     current_change['position'] = position
-    current_change['change'] = equivalent
+    current_change['change'] = detected_case
     return current_change
 
 
-@case_detector(nodes.AExpr)
 def caso_uno(target_node):
     """Cubre la relación B.1 y B.2 de la tabla 3"""
     if target_node.name[0].val == "||":
@@ -218,6 +261,7 @@ def where_compuesto(current_node):
         pass
     pass
 
+
 def where_compuesto_bool(current_node):
     equivalent = ""
     equivalent2 = ""
@@ -249,13 +293,15 @@ def where_other(current_node):
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
     equivalent += f"{testexpr} IS NULL OR {testexpr} {oper_name} COALESCE({subselect_str}, 0) OR {testexpr} {neg_sign} COALESCE({subselect_str}, 0)"
-    pass
+    return equivalent
+
 
 def negate_operator(operator):
     defined_operators = ['<', '<=', '>', '>=', '=', '<>']
     negate_operators = ['>=', '>', '<=', '<', '<>', '=']
     index_search = defined_operators.index(operator)
     return negate_operators[index_search]
+
 
 def print_statement(cleaned_tree):
     query = " FROM "

@@ -59,7 +59,7 @@ def check_nullables_in_table(tablename):
     conn.close()
 
 
-def check_nullables_in_instance():
+def check_all_nullables_in_instance():
     # Obtain the configuration parameters
     params = config()
     # Connect to the PostgreSQL database
@@ -74,7 +74,26 @@ def check_nullables_in_instance():
         print(row[0])
     cur.close()
     conn.close()
+    return nullables_columns
 
+
+def check_nullable_column(column_name):
+    # Obtain the configuration parameters
+    params = config()
+    # Connect to the PostgreSQL database
+    conn = psycopg2.connect(**params)
+    # Create a new cursor
+    cur = conn.cursor()
+    postgreSQL_select_Query = "select c.column_name from information_schema.columns c where c.table_schema='public' and c.is_nullable='NO' and c.column_name=%s"
+
+    cur.execute(postgreSQL_select_Query, (column_name,))
+    nullables_columns = cur.fetchall()
+    cur.close()
+    conn.close()
+    if nullables_columns:
+        return True
+    else:
+        return False
 
 
 def get_table_from_column(column_name):

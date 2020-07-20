@@ -33,15 +33,20 @@
                 <tbody>
                     <tr>
                     <td class="text-center">
+                    <form>
+                    {% csrf_token %}
                       <div class="position-relative form-group">
                         <label for="exampleCustomSelect" class="">Query Selection</label>
                         <select type="select" id="queriesSelect" name="queriesSelect" class="custom-select">
+                            <option value="">----------</option>
                               {% for query in all_queries %}
                                   <option value="{{ query.pk }}">{{query.query_id}}   -   {{ query.query_text }}</option>
                               {% endfor %}
                         </select>
                       </div>
+                    </form>
                     </td>
+                    </tr>
                   </tr>
                 </tbody>
             </table>
@@ -73,6 +78,29 @@
 
 {% block javascript %}
 
-    
+<script type="text/javascript">
+$(document).ready(function() {
+    $('#queriesSelect').change(function() {
+        instanceId = $(this).val();
+        const csrftoken = jQuery("[name=csrfmiddlewaretoken]").val();
+        alert("Se va a enviar la info al servidor");
+     $.ajax({
+            url :  instanceId + "/process/",
+            type : "POST",
+            data : {
+                csrfmiddlewaretoken: csrftoken
+            },
+            success: function (data) {
+                alert("Funcionó");
+            
+            },  
+            error : function() {
+                sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
+            }
+
+      })
+        });
+});
+</script>
 
 {% endblock %}

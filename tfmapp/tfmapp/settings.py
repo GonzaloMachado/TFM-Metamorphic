@@ -27,7 +27,7 @@ DEBUG = True
 
 SITE_NAME = "TFM - Metamorphic"
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '830b6de81e61.ngrok.io', '08a8d1c315f7.ngrok.io']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '830b6de81e61.ngrok.io', 'b454284a7507.ngrok.io']
 
 
 # Application definition

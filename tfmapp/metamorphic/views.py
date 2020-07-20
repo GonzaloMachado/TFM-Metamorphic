@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import DBInstance, Query
 from .forms import DBInstanceForm, QueryForm
+from .utils import main
 import psycopg2
 import simplejson
 # Create your views here.
@@ -154,3 +155,11 @@ class RelationsView(LoginRequiredMixin, TemplateView):
         context["logged_user"] = logged_user
         context["all_queries"] = all_queries
         return context
+
+
+def get_query(request, **kwargs):
+    if request.is_ajax():
+        query = Query.objects.get(pk=kwargs['query_id'])
+        response = main(query.query_text)
+        return render(request, 'metamorphic/relations.html', {'transformation': response,},
+                      content_type='application/xhtml+xml')

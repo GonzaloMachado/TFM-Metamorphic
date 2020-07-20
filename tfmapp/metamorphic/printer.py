@@ -254,6 +254,18 @@ def serialize(sql, **options):
 ## Specific Node printers, please keep them in alphabetic order
 ##
 
+@node_printer(nodes.AArrayExpr)
+def a_array_expr(node, output):
+    output.write('ARRAY[')
+    output.print_list(node.elements)
+    output.write(']')
+
+
+@node_printer(nodes.AConst)
+def a_const(node, output):
+    output.print_node(node.val)
+
+
 @node_printer(nodes.AExpr)
 def a_expr(node, output):
     if node.kind == 0:

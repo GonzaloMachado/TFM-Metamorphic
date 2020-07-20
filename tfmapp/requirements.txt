@@ -1,0 +1,11 @@
+asgiref==3.2.10
+Django==3.0.7
+django-settings-export==1.2.1
+django-widget-tweaks==1.4.8
+pkg-resources==0.0.0
+psqlparse==1.0rc1
+psycopg2==2.8.5
+pytz==2020.1
+simplejson==3.17.0
+six==1.15.0
+sqlparse==0.3.1
