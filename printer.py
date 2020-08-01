@@ -254,6 +254,11 @@ def serialize(sql, **options):
 ## Specific Node printers, please keep them in alphabetic order
 ##
 
+@node_printer(nodes.AConst)
+def a_const(node, output):
+    output.print_node(node.val)
+
+
 @node_printer(nodes.AExpr)
 def a_expr(node, output):
     if node.kind == 0:
@@ -842,6 +847,10 @@ def list_type(node, output):
 
 
 @node_printer(str)
+def str_type(node, output):
+    output.write(node)
+
+
 def str_type(node, output):
     output.write(node)
 

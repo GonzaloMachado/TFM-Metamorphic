@@ -17,11 +17,7 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    query_string = "select a from ta where not x < any(select ka from tb)"
-    print(query_string)
-    """Probar que el statement sea valido en la BD (Ya incluye sintaxis)"""
-    #prueba_db.check_statement(query_string)
-    """Se obtiene el parsed tree"""
+    query_string = "select x from ta where x not in (select ka from tb where edad<5)"
     parsed_tree = parse(query_string)
     """se limpia el arbol"""
     # allData = list()
@@ -29,18 +25,9 @@ def main():
     #     allData.append(clean_tree(statement))
     """Se buscan los casos y se hacen transformaciones"""
     # equivalent = select_match_case(allData[0])
-
-    root = parse_sql('select a from ta where x < (select t.col from t where c)')
-    #print(root)
-    root2 = Node(root)
-    #print(root2)
-    myStruct2 = clean_tree2(parsed_tree[0])
-    myStruct = clean_tree(parsed_tree[0])
-    # propagate_nullable(root[0]['RawStmt']['stmt']['SelectStmt'])
-    # propagate_nullable(parsed_tree[0])
     propagate_nullable(parsed_tree[0])
     #serialized = printer.serialize(parsed_tree)
-    #equivalent2 = select_match_case_2(parsed_tree[0])
+    equivalent2 = select_match_case_2(parsed_tree[0])
     # print(serialized)
     # other = parse(equivalent)
     print('done')
@@ -120,13 +107,6 @@ def propagate_nullable(tree):
     nullable_contents = None
 
 
-
-def get_nullable_state(current_node, results):
-    nullable = current_node.get_nullable_state()
-    print(nullable)
-    return nullable
-
-
 def get_case_for_node(node):
     """Get specific case implementation for given `node` instance."""
 
@@ -153,35 +133,38 @@ def case_detector(node_class):
 def select_match_case_2(statement):
     """Función que utiliza el parsed tree para conseguir casos."""
     changes = []
-    if statement.target_list is not None:
-        for position, current_target in enumerate(statement.target_list):
-            if isinstance(current_target.val, nodes.AExpr):
-                detected_case = caso_uno(current_target.val)
-                current_change = save_changes(current_target, position, detected_case)
-                changes.append(current_change)
-                statement.target_list[position] = current_change['change']
+    if statement.nullable:
+        if statement.target_list is not None:
+            for position, current_target in enumerate(statement.target_list):
+                if isinstance(current_target.val, nodes.AExpr):
+                    detected_case = caso_uno(current_target.val)
+                    current_change = save_changes(current_target, position, detected_case)
+                    changes.append(current_change)
+                    statement.target_list[position] = current_change['change']
+                    serialized = printer.serialize([statement])
+                    print(serialized)
+                else:
+                    print("No cases found in target_list")
+        if statement.where_clause is not None:
+            """HAY QUE MEJORAR EL MATCH DEL CASO"""
+            """Funcion que se encargue de los SubLink?"""
+            if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
+                where_compuesto_bool(statement.where_clause)
+            elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
+                statement.where_clause = where_other(statement.where_clause)
+                print(printer.serialize([statement]))
+                """Ya se cambió a STR *error*"""
+                # select_match_case_2(statement.where_clause.rexpr.subselect)
+            elif isinstance(statement.where_clause, nodes.SubLink):
+                where_compuesto(statement.where_clause)
+            else:
+                """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
+                statement.where_clause = where_simple(statement.where_clause)
                 serialized = printer.serialize([statement])
                 print(serialized)
-            else:
-                print("No cases found in target_list")
-    if statement.where_clause is not None:
-        """HAY QUE MEJORAR EL MATCH DEL CASO"""
-        """Funcion que se encargue de los SubLink?"""
-        if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
-            where_compuesto_bool(statement.where_clause)
-        elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
-            statement.where_clause = where_other(statement.where_clause)
-            print(printer.serialize([statement]))
-            """Ya se cambió a STR *error*"""
-            # select_match_case_2(statement.where_clause.rexpr.subselect)
-        elif isinstance(statement.where_clause, nodes.SubLink):
-            where_compuesto(statement.where_clause)
-        else:
-            """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
-            statement.where_clause = where_simple(statement.where_clause)
-            serialized = printer.serialize([statement])
-            print(serialized)
-            """HAY QUE GUARDAR EL CAMBIO"""
+                """HAY QUE GUARDAR EL CAMBIO"""
+    else:
+        print("No hay nodos nullables")
     return changes
 
 
