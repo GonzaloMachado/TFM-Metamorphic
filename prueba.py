@@ -17,7 +17,7 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    query_string = "select x from ta where x not in (select ka from tb where edad<5)"
+    query_string = "select x from ta where x = (select ka+kb from tb where edad<5)"
     parsed_tree = parse(query_string)
     """se limpia el arbol"""
     # allData = list()
@@ -90,21 +90,8 @@ def clean_tree2(statement):
 
 
 def propagate_nullable(tree):
-    results = list()
-    i = 0
-    nullable = None
-    for attr in six.itervalues(tree.__dict__):
-        if isinstance(attr, list):
-            for item in attr:
-                if isinstance(item, nodes.Node):
-                    results.append(item.get_nullable_state())
-        elif isinstance(attr, nodes.Node):
-            results.append(attr.get_nullable_state())
-    if any(results):
-        tree.nullable = True
-
-    nullable_results = None
-    nullable_contents = None
+    tree.get_nullable_state()
+    tree.nullable = tree.nullable_results | tree.nullable_contents
 
 
 def get_case_for_node(node):
@@ -275,7 +262,7 @@ def where_other(current_node):
     testexpr = node_to_str(current_node.lexpr)
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
-    equivalent += f"{testexpr} IS NULL OR {testexpr} {oper_name} COALESCE({subselect_str}, 0) OR {testexpr} {neg_sign} COALESCE({subselect_str}, 0)"
+    equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
     return equivalent
 
 

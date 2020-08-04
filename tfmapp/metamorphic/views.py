@@ -8,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import DBInstance, Query
 from .forms import DBInstanceForm, QueryForm
-from .utils import analize_query
+from .utils import parse_query
 import psycopg2
 import simplejson
 # Create your views here.
@@ -163,5 +163,9 @@ def get_query(request, **kwargs):
     if request.is_ajax():
         query = Query.objects.get(pk=kwargs['query_id'])
         # response = main(query.query_text)
-        response = {"nullable": analize_query(query), "status": 200}
+        is_nullable = parse_query(query)
+        if is_nullable:
+            response = {"text": "Applying transformations", "nullable": is_nullable, "status": 200}
+        else:
+            response = {"text": "No changes to apply", "nullable": is_nullable, "status": 200}
         return JsonResponse(response)

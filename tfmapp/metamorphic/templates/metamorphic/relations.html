@@ -99,7 +99,7 @@ $(document).ready(function() {
                 csrfmiddlewaretoken: csrftoken
             },
             success: function (data) {
-                 $(".container").find("#result").text("Is nullable: " + data.nullable);
+                 $(".container").find("#result").text("Status: " + data.text);
             },  
             error : function() {
                 sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
