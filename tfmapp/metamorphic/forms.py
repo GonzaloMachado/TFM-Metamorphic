@@ -1,7 +1,7 @@
 from django import forms
 from .models import DBInstance, Query
 from django.utils.translation import ugettext_lazy as _
-from .utils import db_connection, check_statement
+from .db_utils import db_connection, check_statement
 
 
 class DBInstanceForm(forms.ModelForm):

@@ -8,10 +8,12 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import DBInstance, Query
 from .forms import DBInstanceForm, QueryForm
-from .utils import main
+from .utils import analize_query
 import psycopg2
 import simplejson
 # Create your views here.
+
+connection_data = None
 
 class AjaxableResponseMixin:
     """
@@ -160,6 +162,6 @@ class RelationsView(LoginRequiredMixin, TemplateView):
 def get_query(request, **kwargs):
     if request.is_ajax():
         query = Query.objects.get(pk=kwargs['query_id'])
-        response = main(query.query_text)
-        return render(request, 'metamorphic/relations.html', {'transformation': response,},
-                      content_type='application/xhtml+xml')
+        # response = main(query.query_text)
+        response = {"nullable": analize_query(query), "status": 200}
+        return JsonResponse(response)

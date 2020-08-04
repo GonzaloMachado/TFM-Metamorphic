@@ -47,7 +47,6 @@
                     </form>
                     </td>
                     </tr>
-                  </tr>
                 </tbody>
             </table>
         </div>
@@ -55,6 +54,15 @@
     </div>
 </div>
 
+<div class="row">
+<div class="col-md-12">
+    <div class="main-card mb-3 card">
+<div class="container">
+    <div id="result"></div>
+</div>
+        </div>
+    </div>
+</div>
 
 
 {% endblock  %}
@@ -91,8 +99,7 @@ $(document).ready(function() {
                 csrfmiddlewaretoken: csrftoken
             },
             success: function (data) {
-                alert("Funcionó");
-            
+                 $(".container").find("#result").text("Is nullable: " + data.nullable);
             },  
             error : function() {
                 sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
