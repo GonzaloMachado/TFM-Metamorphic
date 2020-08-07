@@ -2,7 +2,7 @@ from psqlparse import parse, nodes
 from pglast import parse_sql, Node
 from prueba_db import check_all_nullables_in_instance, check_nullable_column
 
-import printer, prueba_db
+import printer2, prueba_db
 import six
 
 DEFINED_CASES = {}

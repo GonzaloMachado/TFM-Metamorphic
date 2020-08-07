@@ -8,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import DBInstance, Query
 from .forms import DBInstanceForm, QueryForm
-from .utils import parse_query
+from .utils import get_conn_data, parse_query, run_statement, compare_results
 import psycopg2
 import simplejson
 # Create your views here.
@@ -163,9 +163,16 @@ def get_query(request, **kwargs):
     if request.is_ajax():
         query = Query.objects.get(pk=kwargs['query_id'])
         # response = main(query.query_text)
-        is_nullable = parse_query(query)
-        if is_nullable:
-            response = {"text": "Applying transformations", "nullable": is_nullable, "status": 200}
+        get_conn_data(query.instance)
+        original_result = run_statement(query.query_text)
+        data = parse_query(query)
+        if data["changes"]:
+            changes_result = run_statement(data["changes"][0]["transformacion"])
+            are_equal = compare_results(original_result, changes_result)
+            if data["nullable"] and not are_equal["status"]:
+                response = {"text": "Applying transformations", "nullable": data["nullable"], "status": 200, "print": data["changes"], "data": original_result["rows"],
+                            "columns": original_result["columns"]}
         else:
-            response = {"text": "No changes to apply", "nullable": is_nullable, "status": 200}
+            response = {"text": "No changes to apply", "nullable": data["nullable"], "status": 200, "print": data["changes"], "data": original_result["rows"],
+                        "columns": original_result["columns"]}
         return JsonResponse(response)

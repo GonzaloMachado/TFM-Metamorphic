@@ -2,7 +2,7 @@ import six
 
 from .utils import build_from_item
 from .nodes import Node
-from metamorphic.db_utils import check_nullable_column
+import metamorphic.utils
 
 class Statement(Node):
 
@@ -63,22 +63,29 @@ class SelectStmt(Statement):
         return _tables
 
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         _nullable_results = list()
         _nullable_contents = list()
         if self.target_list:
             for item in self.target_list:
-                _nullable_results.append(item.get_nullable_state(obj))
+                _nullable_results.append(item.get_nullable_state())
         if self.from_clause:
             for item in self.from_clause:
                 pass
         if self.where_clause:
-            _nullable_contents.append(self.where_clause.get_nullable_state(obj))
+            _nullable_contents.append(self.where_clause.get_nullable_state())
         if any(_nullable_results):
             self.nullable_results = True
         if any(_nullable_contents):
             self.nullable_contents = True
         self.nullable = self.nullable_results | self.nullable_contents
+
+
+    def apply_transformation(self):
+        if self.target_list:
+            for item in self.target_list:
+                if item.nullable:
+                    item.apply_transformation()
 
 
 class InsertStmt(Statement):
@@ -226,6 +233,7 @@ class ResTarget(Node):
     """
 
     def __init__(self, obj):
+        super().__init__()
         self.name = obj.get('name')
         self.indirection = build_from_item(obj, 'indirection')
         self.val = build_from_item(obj, 'val')
@@ -242,36 +250,44 @@ class ResTarget(Node):
 
         return _tables
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         _nullables = list()
         if isinstance(self.val, list):
             for item in self.val:
-                _nullables.append(item.get_nullable_state(obj))
+                _nullables.append(item.get_nullable_state())
         elif isinstance(self.val, Node):
-            _nullables.append(self.val.get_nullable_state(obj))
+            _nullables.append(self.val.get_nullable_state())
         if any(_nullables):
             self.nullable = True
         return self.nullable
 
 
+    def apply_transformation(self):
+        if isinstance(self.val, list):
+            for item in self.val:
+                item.apply_transformation()
+        elif isinstance(self.val, Node):
+            self.val.apply_transformation()
+        return self
+
 
 class ColumnRef(Node):
 
     def __init__(self, obj):
+        super().__init__()
         self.fields = build_from_item(obj, 'fields')
         self.location = obj.get('location')
-        self.nullable = False
 
     def tables(self):
         return set()
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         column_list = []
         for column in self.fields:
             if isinstance(column, AStar):
                 pass
             else:
-                response = check_nullable_column(column.str, obj)
+                response = metamorphic.utils.check_nullable(column.str, metamorphic.utils.conn_data)
                 if response["status"]:
                     column_list.append(response["nullable"])
         # is_nullable = check_nullable_column(self.fields[0].str)
@@ -279,6 +295,13 @@ class ColumnRef(Node):
             self.nullable = True
         return self.nullable
 
+    def apply_transformation(self):
+        column_list = []
+        for column in self.fields:
+            if isinstance(column, AStar):
+                pass
+            else:
+                pass
 
 class FuncCall(Node):
 
@@ -305,26 +328,26 @@ class FuncCall(Node):
 class AStar(Node):
 
     def __init__(self, obj):
-        self.nullable = False
-        pass
+        super().__init__()
 
     def tables(self):
         return set()
 
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         return set()  
 
 
 class AExpr(Node):
 
     def __init__(self, obj):
+        super().__init__()
         self.kind = obj.get('kind')
         self.name = build_from_item(obj, 'name')
         self.lexpr = build_from_item(obj, 'lexpr')
         self.rexpr = build_from_item(obj, 'rexpr')
         self.location = obj.get('location')
-        self.nullable = False
+
 
     def tables(self):
         _tables = set()
@@ -344,20 +367,20 @@ class AExpr(Node):
         return _tables
 
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         _nullables = list()
 
         if isinstance(self.lexpr, list):
             for item in self.lexpr:
-                _nullables.append(item.get_nullable_state(obj))
+                _nullables.append(item.get_nullable_state())
         elif isinstance(self.lexpr, Node):
-            _nullables.append(self.lexpr.get_nullable_state(obj))
+            _nullables.append(self.lexpr.get_nullable_state())
 
         if isinstance(self.rexpr, list):
             for item in self.rexpr:
-                _nullables.append(item.get_nullable_state(obj))
+                _nullables.append(item.get_nullable_state())
         elif isinstance(self.rexpr, Node):
-            _nullables.append(self.rexpr.get_nullable_state(obj))
+            _nullables.append(self.rexpr.get_nullable_state())
 
         if any(_nullables):
             self.nullable = True
@@ -365,19 +388,36 @@ class AExpr(Node):
         return self.nullable
 
 
+    def apply_transformation(self):
+        print("")
+        if self.nullable:
+            """Cubre la relación B.1 y B.2 de la tabla 3"""
+            if self.name[0].val == "||":
+                identity_element = "''"
+            else:
+                identity_element = 1 if self.name[0].val == ("*" or "/") else 0
+            if isinstance(self.lexpr, nodes.AExpr):
+                equivalent = caso_uno(
+                    self.lexpr) + f"{self.name[0].val} COALESCE({self.rexpr.fields[0].val},{identity_element})"
+            else:
+                equivalent = f"COALESCE({self.lexpr.fields[0].val},{identity_element}) {self.name[0].val} COALESCE({self.rexpr.fields[0].val},{identity_element})"
+            return equivalent
+        pass
+
 
 class AConst(Node):
 
     def __init__(self, obj):
+        super().__init__()
         self.val = build_from_item(obj, 'val')
         self.location = obj.get('location')
-        self.nullable = False
+
 
     def tables(self):
         return set()
 
 
-    def get_nullable_state(self, obj):
+    def get_nullable_state(self):
         if isinstance(self.val, dict):
             if "Null" in self.val:
                 self.nullable = True

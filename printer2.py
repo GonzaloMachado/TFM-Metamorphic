@@ -9,7 +9,7 @@
 
 from contextlib import contextmanager
 from inspect import isclass
-from psqlparse import nodes, parse
+from .psqlparse import nodes, parse
 
 from six import PY2, StringIO, string_types
 

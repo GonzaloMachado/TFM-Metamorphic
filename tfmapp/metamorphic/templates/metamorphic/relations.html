@@ -45,9 +45,14 @@
                         </select>
                       </div>
                     </form>
-                    </td>
                     </tr>
                 </tbody>
+            </table>
+        </div>
+        <div class="table-responsive">
+            <table id="originalResultTable" class="align-middle mb-0 table table-borderless table-striped table-hover text-center">
+                <thead><tr></tr></thead>
+                <tbody></tbody>
             </table>
         </div>
         </div>
@@ -59,6 +64,13 @@
     <div class="main-card mb-3 card">
 <div class="container">
     <div id="result"></div>
+</div>
+        <div class="container2">
+     <div id="metamorphic"></div>
+             <div class="table-responsive">
+            <table  id="transformationTable" class="align-middle mb-0 table table-borderless table-striped table-hover">
+            </table>
+             </div>
 </div>
         </div>
     </div>
@@ -91,7 +103,6 @@ $(document).ready(function() {
     $('#queriesSelect').change(function() {
         instanceId = $(this).val();
         const csrftoken = jQuery("[name=csrfmiddlewaretoken]").val();
-        alert("Se va a enviar la info al servidor");
      $.ajax({
             url :  instanceId + "/process/",
             type : "POST",
@@ -99,8 +110,48 @@ $(document).ready(function() {
                 csrfmiddlewaretoken: csrftoken
             },
             success: function (data) {
-                 $(".container").find("#result").text("Status: " + data.text);
-            },  
+
+                if (  $.fn.DataTable.isDataTable( '#transformationTable' ) ) {
+                $('#transformationTable').DataTable().destroy();
+                };
+                if (  $.fn.DataTable.isDataTable( '#originalResultTable' ) ) {
+                $('#originalResultTable').DataTable().destroy();
+                };
+
+                $('#originalResultTable thead tr').empty();
+                $('#originalResultTable tbody').empty();
+
+
+                $.each(data.columns, function (k, colObj) {
+                    str = '<th>' + colObj.name + '</th>';
+                    $(str).appendTo('#originalResultTable'+'>thead>tr');
+                });
+
+                $('#transformationTable').dataTable({
+                    "destroy": true,
+                    "paging": false,
+                    "info": false,
+                    "searching": false,
+                    "data": data.print,
+                    "columns": [{
+                        "data": "transformacion"
+                    }]
+                })
+                $('#originalResultTable').dataTable({
+                    "destroy": true,
+                    "paging": false,
+                    "info": false,
+                    "searching": false,
+                    "dataSrc": "",
+                    "data": data.data,
+                    "columns": data.columns
+                })
+
+
+
+
+
+            },
             error : function() {
                 sweetAlert("{% trans 'Oops...' %}", "{% trans 'Something went wrong!' %}", "error");
             }
@@ -109,5 +160,14 @@ $(document).ready(function() {
         });
 });
 </script>
+
+
+    <script>
+
+  $(document).ready(function() {
+
+} );
+</script>
+
 
 {% endblock %}
