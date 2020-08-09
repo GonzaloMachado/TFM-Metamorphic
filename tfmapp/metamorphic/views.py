@@ -162,7 +162,7 @@ class RelationsView(LoginRequiredMixin, TemplateView):
 def get_query(request, **kwargs):
     if request.is_ajax():
         query = Query.objects.get(pk=kwargs['query_id'])
-        # response = main(query.query_text)
+        response = None
         get_conn_data(query.instance)
         original_result = run_statement(query.query_text)
         data = parse_query(query)

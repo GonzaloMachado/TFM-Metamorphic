@@ -81,13 +81,6 @@ class SelectStmt(Statement):
         self.nullable = self.nullable_results | self.nullable_contents
 
 
-    def apply_transformation(self):
-        if self.target_list:
-            for item in self.target_list:
-                if item.nullable:
-                    item.apply_transformation()
-
-
 class InsertStmt(Statement):
 
     statement = 'INSERT INTO'
@@ -262,15 +255,6 @@ class ResTarget(Node):
         return self.nullable
 
 
-    def apply_transformation(self):
-        if isinstance(self.val, list):
-            for item in self.val:
-                item.apply_transformation()
-        elif isinstance(self.val, Node):
-            self.val.apply_transformation()
-        return self
-
-
 class ColumnRef(Node):
 
     def __init__(self, obj):
@@ -295,13 +279,6 @@ class ColumnRef(Node):
             self.nullable = True
         return self.nullable
 
-    def apply_transformation(self):
-        column_list = []
-        for column in self.fields:
-            if isinstance(column, AStar):
-                pass
-            else:
-                pass
 
 class FuncCall(Node):
 
@@ -386,23 +363,6 @@ class AExpr(Node):
             self.nullable = True
 
         return self.nullable
-
-
-    def apply_transformation(self):
-        print("")
-        if self.nullable:
-            """Cubre la relación B.1 y B.2 de la tabla 3"""
-            if self.name[0].val == "||":
-                identity_element = "''"
-            else:
-                identity_element = 1 if self.name[0].val == ("*" or "/") else 0
-            if isinstance(self.lexpr, nodes.AExpr):
-                equivalent = caso_uno(
-                    self.lexpr) + f"{self.name[0].val} COALESCE({self.rexpr.fields[0].val},{identity_element})"
-            else:
-                equivalent = f"COALESCE({self.lexpr.fields[0].val},{identity_element}) {self.name[0].val} COALESCE({self.rexpr.fields[0].val},{identity_element})"
-            return equivalent
-        pass
 
 
 class AConst(Node):

@@ -6,10 +6,9 @@
 # :Copyright: © 2017 Lele Gaifax
 #
 
-
 from contextlib import contextmanager
 from inspect import isclass
-from .psqlparse import nodes, parse
+from psqlparse import nodes, parse
 
 from six import PY2, StringIO, string_types
 
@@ -288,10 +287,6 @@ def a_expr(node, output):
         output.write(node.name[0].str)
         output.write(' ')
         output.print_expression(node.rexpr, 'AND ')
-
-
-
-
 
 
 @node_printer(nodes.AIndices)
@@ -734,7 +729,7 @@ def sub_link(node, output):
         for operator in node.oper_name:
             output.write(' ')
             output.write(operator.str)
-    output.write(' ')
+    # output.write(' ')
     output.write((' EXISTS ', ' ALL ', ' ANY ', '', '')[node.sub_link_type])
     output.write('(')
     with output.push_indent():

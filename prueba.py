@@ -17,7 +17,8 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    query_string = "select ka||level from ta where not ka > (select ka||level from ta)"
+    #query_string = "select ka||level from ta where ka > (select ka||level from ta)"
+    query_string = "select ka||level from ta where x between a and b"
     parsed_tree = parse(query_string)
     """se limpia el arbol"""
     # allData = list()
@@ -27,11 +28,15 @@ def main():
     # equivalent = select_match_case(allData[0])
     # propagate_nullable(parsed_tree[0])
     #serialized = printer.serialize(parsed_tree)
+    print("Original")
     print(printer.serialize([parsed_tree[0]]))
-    parsed_tree[0].apply_transformation()
-    #equivalent2 = select_match_case_3(parsed_tree[0])
-    #for item in equivalent2:
-    #    print(item["transformacion"])
+    # parsed_tree[0].apply_transformation()
+    # equivalent2 = select_match_case_3(parsed_tree[0])
+    #equivalent = select_match_case_2(parsed_tree[0])
+    equivalent = select_match_case_3(parsed_tree[0])
+    for item in equivalent:
+        print(item["info"])
+        print(item["transformacion"])
     # print(serialized)
     # other = parse(equivalent)
     print('done')
@@ -121,6 +126,7 @@ def case_detector(node_class):
     return decorator
 
 
+"""HAY ERRORES DE SOBREESCRITURA DEL NODO, SE PIERDE INFO"""
 def select_match_case_2(statement):
     """Función que utiliza el parsed tree para conseguir casos."""
     changes = []
@@ -128,7 +134,7 @@ def select_match_case_2(statement):
         if statement.target_list is not None:
             for position, current_target in enumerate(statement.target_list):
                 if isinstance(current_target.val, nodes.AExpr):
-                    detected_case = caso_uno(current_target.val)
+                    detected_case = transform_a_expr_select(current_target.val)
                     current_change = save_changes(current_target, position, detected_case)
                     changes.append(current_change)
                     statement.target_list[position] = current_change['change']
@@ -158,6 +164,8 @@ def select_match_case_2(statement):
         print("No hay nodos nullables")
     return changes
 
+
+"""SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
 def select_match_case_3(statement):
     aux = copy.deepcopy(statement)
     transformations = list()
@@ -165,7 +173,74 @@ def select_match_case_3(statement):
     # if statement.target_list is not None and statement.nullable_results:
         for position, current_target in enumerate(statement.target_list):
             if isinstance(current_target.val, nodes.AExpr):
-                detected_case = caso_uno(current_target.val)
+                if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
+                    detected_case = transform_a_expr_select(current_target.val)
+                    aux.target_list[position] = detected_case
+                    save_change(aux, statement, transformations, 'B1/B2')
+            else:
+                print("No cases found in target_list")
+    if statement.where_clause is not None:
+        if isinstance(statement.where_clause, nodes.AExpr):
+            a_expr_where(statement, aux, transformations, statement.where_clause)
+        elif isinstance(statement.where_clause, nodes.BoolExpr):
+            bool_expr_where(statement, aux, transformations, statement.where_clause)
+        elif isinstance(statement.where_clause, nodes.SubLink):
+            sub_link_where(statement, aux, transformations, statement.where_clause)
+    return transformations
+
+
+def transform_a_expr_select(target_node):
+    """Cubre la relación B.1 y B.2 de la tabla 3"""
+    if target_node.name[0].val == "||":
+        identity_element = "''"
+    else:
+        identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
+    if isinstance(target_node.lexpr, nodes.AExpr):
+        equivalent = transform_a_expr_select(
+            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+    else:
+        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+    return equivalent
+
+
+def a_expr_where(statement, aux, transformations, a_expr_node):
+    if isinstance(a_expr_node.rexpr, nodes.SubLink):
+        aux.where_clause = where_other(a_expr_node)
+        save_change(aux, statement, transformations, "A.7")
+        detected_case = select_match_case_3(a_expr_node.rexpr.subselect)
+        for item in detected_case:
+            aux.where_clause.rexpr.subselect = item['transformacion']
+            save_change(aux, statement, transformations, "Subquery")
+    else:
+        aux.where_clause = where_simple(statement.where_clause)
+        save_change(aux, statement, transformations, "B.3-B.6")
+
+
+def bool_expr_where(statement, aux, transformations, bool_expr_node):
+    for arg in bool_expr_node.args:
+        if isinstance(arg, nodes.SubLink):
+            aux.where_clause = where_compuesto_bool(statement.where_clause)
+            save_change(aux, statement, transformations, "A.2/A.3")
+            detected_case = select_match_case_3(statement.where_clause.args[0].subselect)
+            for item in detected_case:
+                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
+                save_change(aux, statement, transformations, "Subquery")
+
+
+def sub_link_where(statement, aux, transformations, sub_link_node):
+    aux.where_clause = where_compuesto(sub_link_node)
+    save_change(aux, statement, transformations, "A.1/A.6")
+
+
+"""IGUAL QUE MATCH CASE 3 PERO SOLO EL SELECT"""
+def select_match_case_4(statement):
+    aux = copy.deepcopy(statement)
+    transformations = list()
+    if statement.target_list is not None:
+    # if statement.target_list is not None and statement.nullable_results:
+        for position, current_target in enumerate(statement.target_list):
+            if isinstance(current_target.val, nodes.AExpr):
+                detected_case = transform_a_expr_select(current_target.val)
                 aux.target_list[position] = detected_case
                 serialized = printer.serialize([aux])
                 transformations.append(dict(transformacion=serialized))
@@ -173,64 +248,51 @@ def select_match_case_3(statement):
                 aux.target_list[position] = statement.target_list[position]
             else:
                 print("No cases found in target_list")
-    if statement.where_clause is not None:
-        """HAY QUE MEJORAR EL MATCH DEL CASO"""
-        """Funcion que se encargue de los SubLink?"""
-        if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
-            """EVLUAR EL SUBQUERY"""
-            aux.where_clause = where_compuesto_bool(statement.where_clause)
-            serialized = printer.serialize([aux])
-            transformations.append(dict(transformacion=serialized))
-            # print(serialized)
-            aux.where_clause = statement.where_clause
-            info = select_match_case_3(statement.where_clause.args[0].subselect)
-            for item in info:
-                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
-                serialized = printer.serialize([aux])
-                transformations.append(dict(transformacion=serialized))
-                aux.where_clause.args[0].subselect = statement.where_clause.args[0]
-        elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
-            aux.where_clause = where_other(statement.where_clause)
-            serialized = printer.serialize([aux])
-            transformations.append(dict(transformacion=serialized))
-            aux.where_clause = statement.where_clause
-            # print(printer.serialize([statement]))
-            """Ya se cambió a STR *error*"""
-            # select_match_case_2(statement.where_clause.rexpr.subselect)
-            info = select_match_case_3(statement.where_clause.rexpr.subselect)
-            for item in info:
-                aux.where_clause.rexpr.subselect = item['transformacion']
-                serialized = printer.serialize([aux])
-                transformations.append(dict(transformacion=serialized))
-                aux.where_clause.rexpr = statement.where_clause.rexpr
-        elif isinstance(statement.where_clause, nodes.SubLink):
-            aux.where_clause = where_compuesto(statement.where_clause)
-            serialized = printer.serialize([aux])
-            transformations.append(dict(transformacion=serialized))
-            aux.where_clause = statement.where_clause
-        else:
-            """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
-            aux.where_clause = where_simple(statement.where_clause)
-            serialized = printer.serialize([aux])
-            transformations.append(dict(transformacion=serialized))
-            aux.where_clause = statement.where_clause
-            """HAY QUE GUARDAR EL CAMBIO"""
     return transformations
 
 
-def select_match_case_4_solo_select(statement):
+"""IGUAL QUE SELECT MATCH CASE PERO SOLO WHERE"""
+def where_match_case(statement):
     aux = copy.deepcopy(statement)
     transformations = list()
-    for position, current_target in enumerate(statement.target_list):
-        if isinstance(current_target.val, nodes.AExpr):
-            detected_case = caso_uno(current_target.val)
-            aux.target_list[position] = detected_case
-            serialized = printer.serialize([aux])
-            transformations.append(dict(transformacion=serialized))
-            #print(serialized)
-            aux.target_list[position] = statement.target_list[position]
-        else:
-            print("No cases found in target_list")
+    if statement.where_clause:
+        if isinstance(statement.where_clause, nodes.AExpr):
+            a_expr_where(statement, aux, transformations, statement.where_clause)
+        if isinstance(statement.where_clause, nodes.BoolExpr):
+            for arg in statement.where_clause.args:
+                if isinstance(arg, nodes.AExpr):
+                    a_expr_where(statement, aux, transformations, arg)
+                elif isinstance(arg, nodes.SubLink):
+                    info = select_match_case_3(arg.subselect)
+                    for item in info:
+                        aux.where_clause.args[0].subselect = '(' + item['transformacion'] + ')'
+                        serialized = printer.serialize([aux])
+                        transformations.append(dict(transformacion=serialized))
+                        aux.where_clause.args[0].subselect = statement.where_clause.args[0]
+                else:
+                    aux.where_clause = where_compuesto_bool(statement.where_clause)
+                    save_change(aux, statement, transformations)
+        if isinstance(statement.where_clause, nodes.SubLink):
+            aux.where_clause = where_compuesto(statement.where_clause)
+            save_change(aux, statement, transformations)
+    return transformations
+
+
+"""PROBAR METODO APPLY TRANSFORMATION EN DEEP SEARCH"""
+def where_match_case_2(statement):
+    aux = copy.deepcopy(statement)
+    transformations = list()
+    if statement.where_clause:
+        statement.where_clause.apply_transformation()
+    return transformations
+
+
+def save_change(aux, statement, transformations, info):
+    serialized = printer.serialize([aux])
+    transformations.append(dict(transformacion=serialized, info=info))
+    aux.target_list = statement.target_list
+    aux.where_clause = statement.where_clause
+
 
 
 def save_changes(current_target, position, detected_case):
@@ -239,20 +301,6 @@ def save_changes(current_target, position, detected_case):
     current_change['position'] = position
     current_change['change'] = detected_case
     return current_change
-
-
-def caso_uno(target_node):
-    """Cubre la relación B.1 y B.2 de la tabla 3"""
-    if target_node.name[0].val == "||":
-        identity_element = "''"
-    else:
-        identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
-    if isinstance(target_node.lexpr, nodes.AExpr):
-        equivalent = caso_uno(
-            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
-    else:
-        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
-    return equivalent
 
 
 def node_to_str(target_node):
@@ -300,14 +348,12 @@ def where_compuesto(current_node):
             # CASO A.6
             equivalent += f"{testexpr} NOT IN ({subselect_str})"
         else:
-            # CASO A.1 OJO CON EL ALIAS 'AS'
+            # CASO A.1 OJO CON EL ALIAS 'AS EN EQUIVALENT1'
             columns = node_to_str(current_node.subselect.target_list)
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
-    elif current_node.sub_link_type == 2:
-        pass
-    pass
+    return equivalent
 
 
 def where_compuesto_bool(current_node):
@@ -333,6 +379,7 @@ def where_compuesto_bool(current_node):
     return equivalent
 
 
+"""CASO A.7"""
 def where_other(current_node):
     equivalent = ""
     subnode = current_node.rexpr

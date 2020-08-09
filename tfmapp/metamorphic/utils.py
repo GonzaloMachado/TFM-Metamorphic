@@ -15,72 +15,82 @@ def parse_query(query):
     # response = parsed_tree[0].nullable
     response = {
         "nullable": parsed_tree[0].nullable,
-        "changes": select_match_case_2(parsed_tree[0])
+        "changes": search_transformations(parsed_tree[0])
     }
     return response
 
-def select_match_case_2(statement):
+"""SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
+def search_transformations(statement):
     aux = copy.deepcopy(statement)
     transformations = list()
-    if statement.nullable:
-        if statement.target_list is not None:
-        # if statement.target_list is not None and statement.nullable_results:
-            for position, current_target in enumerate(statement.target_list):
-                if current_target.nullable and not current_target.visited:
-                    current_target.visited = True
-                    if isinstance(current_target.val, nodes.AExpr):
-                        detected_case = caso_uno(current_target.val)
-                        aux.target_list[position] = detected_case
-                        serialized = printer.serialize([aux])
-                        transformations.append(dict(transformacion=serialized))
-                        print(serialized)
-                        aux.target_list[position] = statement.target_list[position]
-                    else:
-                        print("No cases found in target_list")
-        if statement.where_clause is not None:
-            """HAY QUE MEJORAR EL MATCH DEL CASO"""
-            """Funcion que se encargue de los SubLink?"""
-            if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
-                where_compuesto_bool(statement.where_clause)
-            elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
-                statement.where_clause = where_other(statement.where_clause)
-                print(printer.serialize([statement]))
-                """Ya se cambió a STR *error*"""
-                # select_match_case_2(statement.where_clause.rexpr.subselect)
-            elif isinstance(statement.where_clause, nodes.SubLink):
-                where_compuesto(statement.where_clause)
+    if statement.target_list is not None:
+    # if statement.target_list is not None and statement.nullable_results:
+        for position, current_target in enumerate(statement.target_list):
+            if isinstance(current_target.val, nodes.AExpr):
+                if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
+                    detected_case = transform_a_expr_select(current_target.val)
+                    aux.target_list[position] = detected_case
+                    save_change(aux, statement, transformations, 'B1/B2')
             else:
-                """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
-                statement.where_clause = where_simple(statement.where_clause)
-                serialized = printer.serialize([statement])
-                print(serialized)
-                """HAY QUE GUARDAR EL CAMBIO"""
-    else:
-        print("No hay nodos nullables")
+                print("No cases found in target_list")
+    if statement.where_clause is not None:
+        if isinstance(statement.where_clause, nodes.AExpr):
+            a_expr_where(statement, aux, transformations, statement.where_clause)
+        elif isinstance(statement.where_clause, nodes.BoolExpr):
+            bool_expr_where(statement, aux, transformations, statement.where_clause)
+        elif isinstance(statement.where_clause, nodes.SubLink):
+            sub_link_where(statement, aux, transformations, statement.where_clause)
     return transformations
 
 
-def save_changes(current_target, position, detected_case):
-    current_change = dict()
-    current_change['node'] = current_target
-    current_change['position'] = position
-    current_change['change'] = detected_case
-    return current_change
-
-
-def caso_uno(target_node):
+def transform_a_expr_select(target_node):
     """Cubre la relación B.1 y B.2 de la tabla 3"""
     if target_node.name[0].val == "||":
         identity_element = "''"
     else:
         identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
     if isinstance(target_node.lexpr, nodes.AExpr):
-        equivalent = caso_uno(target_node.lexpr) + \
-                     f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+        equivalent = transform_a_expr_select(
+            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
     else:
-        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} " \
-                     f"COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
     return equivalent
+
+
+def a_expr_where(statement, aux, transformations, a_expr_node):
+    if isinstance(a_expr_node.rexpr, nodes.SubLink):
+        aux.where_clause = where_other(a_expr_node)
+        save_change(aux, statement, transformations, "A.7")
+        detected_case = search_transformations(a_expr_node.rexpr.subselect)
+        for item in detected_case:
+            aux.where_clause.rexpr.subselect = item['transformacion']
+            save_change(aux, statement, transformations, "Subquery")
+    else:
+        aux.where_clause = where_simple(statement.where_clause)
+        save_change(aux, statement, transformations, "B.3-B.6")
+
+
+def bool_expr_where(statement, aux, transformations, bool_expr_node):
+    for arg in bool_expr_node.args:
+        if isinstance(arg, nodes.SubLink):
+            aux.where_clause = where_compuesto_bool(statement.where_clause)
+            save_change(aux, statement, transformations, "A.2/A.3")
+            detected_case = search_transformations(statement.where_clause.args[0].subselect)
+            for item in detected_case:
+                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
+                save_change(aux, statement, transformations, "Subquery")
+
+
+def sub_link_where(statement, aux, transformations, sub_link_node):
+    aux.where_clause = where_compuesto(sub_link_node)
+    save_change(aux, statement, transformations, "A.1/A.6")
+
+
+def save_change(aux, statement, transformations, info):
+    serialized = printer.serialize([aux])
+    transformations.append(dict(transformacion=serialized, info=info))
+    aux.target_list = statement.target_list
+    aux.where_clause = statement.where_clause
 
 
 def node_to_str(target_node):
@@ -128,14 +138,12 @@ def where_compuesto(current_node):
             # CASO A.6
             equivalent += f"{testexpr} NOT IN ({subselect_str})"
         else:
-            # CASO A.1 OJO CON EL ALIAS 'AS'
+            # CASO A.1 OJO CON EL ALIAS 'AS EN EQUIVALENT1'
             columns = node_to_str(current_node.subselect.target_list)
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
-    elif current_node.sub_link_type == 2:
-        pass
-    pass
+    return equivalent
 
 
 def where_compuesto_bool(current_node):
@@ -158,9 +166,10 @@ def where_compuesto_bool(current_node):
             # NOT EXISTS (QUEY AND X = COL)
             # X <> ALL (QUERY)
             equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
-    pass
+    return equivalent
 
 
+"""CASO A.7"""
 def where_other(current_node):
     equivalent = ""
     subnode = current_node.rexpr
