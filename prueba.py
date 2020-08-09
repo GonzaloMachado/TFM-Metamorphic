@@ -1,9 +1,9 @@
 from psqlparse import parse, nodes
-from pglast import parse_sql, Node
 from prueba_db import check_all_nullables_in_instance, check_nullable_column
 
-import printer2, prueba_db
-import six
+import printer2 as printer
+import prueba_db
+import six, copy
 
 DEFINED_CASES = {}
 "Registry of specialized printers."
@@ -17,7 +17,7 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    query_string = "select x from ta where x = (select ka+kb from tb where edad<5)"
+    query_string = "select ka||level from ta where not ka > (select ka||level from ta)"
     parsed_tree = parse(query_string)
     """se limpia el arbol"""
     # allData = list()
@@ -25,9 +25,13 @@ def main():
     #     allData.append(clean_tree(statement))
     """Se buscan los casos y se hacen transformaciones"""
     # equivalent = select_match_case(allData[0])
-    propagate_nullable(parsed_tree[0])
+    # propagate_nullable(parsed_tree[0])
     #serialized = printer.serialize(parsed_tree)
-    equivalent2 = select_match_case_2(parsed_tree[0])
+    print(printer.serialize([parsed_tree[0]]))
+    parsed_tree[0].apply_transformation()
+    #equivalent2 = select_match_case_3(parsed_tree[0])
+    #for item in equivalent2:
+    #    print(item["transformacion"])
     # print(serialized)
     # other = parse(equivalent)
     print('done')
@@ -129,7 +133,7 @@ def select_match_case_2(statement):
                     changes.append(current_change)
                     statement.target_list[position] = current_change['change']
                     serialized = printer.serialize([statement])
-                    print(serialized)
+                    # print(serialized)
                 else:
                     print("No cases found in target_list")
         if statement.where_clause is not None:
@@ -139,7 +143,7 @@ def select_match_case_2(statement):
                 where_compuesto_bool(statement.where_clause)
             elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
                 statement.where_clause = where_other(statement.where_clause)
-                print(printer.serialize([statement]))
+                # print(printer.serialize([statement]))
                 """Ya se cambió a STR *error*"""
                 # select_match_case_2(statement.where_clause.rexpr.subselect)
             elif isinstance(statement.where_clause, nodes.SubLink):
@@ -148,11 +152,85 @@ def select_match_case_2(statement):
                 """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
                 statement.where_clause = where_simple(statement.where_clause)
                 serialized = printer.serialize([statement])
-                print(serialized)
+                # print(serialized)
                 """HAY QUE GUARDAR EL CAMBIO"""
     else:
         print("No hay nodos nullables")
     return changes
+
+def select_match_case_3(statement):
+    aux = copy.deepcopy(statement)
+    transformations = list()
+    if statement.target_list is not None:
+    # if statement.target_list is not None and statement.nullable_results:
+        for position, current_target in enumerate(statement.target_list):
+            if isinstance(current_target.val, nodes.AExpr):
+                detected_case = caso_uno(current_target.val)
+                aux.target_list[position] = detected_case
+                serialized = printer.serialize([aux])
+                transformations.append(dict(transformacion=serialized))
+                # print(serialized)
+                aux.target_list[position] = statement.target_list[position]
+            else:
+                print("No cases found in target_list")
+    if statement.where_clause is not None:
+        """HAY QUE MEJORAR EL MATCH DEL CASO"""
+        """Funcion que se encargue de los SubLink?"""
+        if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
+            """EVLUAR EL SUBQUERY"""
+            aux.where_clause = where_compuesto_bool(statement.where_clause)
+            serialized = printer.serialize([aux])
+            transformations.append(dict(transformacion=serialized))
+            # print(serialized)
+            aux.where_clause = statement.where_clause
+            info = select_match_case_3(statement.where_clause.args[0].subselect)
+            for item in info:
+                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
+                serialized = printer.serialize([aux])
+                transformations.append(dict(transformacion=serialized))
+                aux.where_clause.args[0].subselect = statement.where_clause.args[0]
+        elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
+            aux.where_clause = where_other(statement.where_clause)
+            serialized = printer.serialize([aux])
+            transformations.append(dict(transformacion=serialized))
+            aux.where_clause = statement.where_clause
+            # print(printer.serialize([statement]))
+            """Ya se cambió a STR *error*"""
+            # select_match_case_2(statement.where_clause.rexpr.subselect)
+            info = select_match_case_3(statement.where_clause.rexpr.subselect)
+            for item in info:
+                aux.where_clause.rexpr.subselect = item['transformacion']
+                serialized = printer.serialize([aux])
+                transformations.append(dict(transformacion=serialized))
+                aux.where_clause.rexpr = statement.where_clause.rexpr
+        elif isinstance(statement.where_clause, nodes.SubLink):
+            aux.where_clause = where_compuesto(statement.where_clause)
+            serialized = printer.serialize([aux])
+            transformations.append(dict(transformacion=serialized))
+            aux.where_clause = statement.where_clause
+        else:
+            """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
+            aux.where_clause = where_simple(statement.where_clause)
+            serialized = printer.serialize([aux])
+            transformations.append(dict(transformacion=serialized))
+            aux.where_clause = statement.where_clause
+            """HAY QUE GUARDAR EL CAMBIO"""
+    return transformations
+
+
+def select_match_case_4_solo_select(statement):
+    aux = copy.deepcopy(statement)
+    transformations = list()
+    for position, current_target in enumerate(statement.target_list):
+        if isinstance(current_target.val, nodes.AExpr):
+            detected_case = caso_uno(current_target.val)
+            aux.target_list[position] = detected_case
+            serialized = printer.serialize([aux])
+            transformations.append(dict(transformacion=serialized))
+            #print(serialized)
+            aux.target_list[position] = statement.target_list[position]
+        else:
+            print("No cases found in target_list")
 
 
 def save_changes(current_target, position, detected_case):
@@ -252,7 +330,7 @@ def where_compuesto_bool(current_node):
             # NOT EXISTS (QUEY AND X = COL)
             # X <> ALL (QUERY)
             equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
-    pass
+    return equivalent
 
 
 def where_other(current_node):
