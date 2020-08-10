@@ -18,7 +18,8 @@ DEFINED_CASES = {}
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
     #query_string = "select ka||level from ta where ka > (select ka||level from ta)"
-    query_string = "select ka||level from ta where x between a and b"
+    query_string = "select colA from T2 where a<b and c>d"
+    #query_string = "select colA from T2 as A where NOT x > any (select * from T2)"
     parsed_tree = parse(query_string)
     """se limpia el arbol"""
     # allData = list()
@@ -179,6 +180,7 @@ def select_match_case_3(statement):
                     save_change(aux, statement, transformations, 'B1/B2')
             else:
                 print("No cases found in target_list")
+    from_info = get_from_tables(statement.from_clause)
     if statement.where_clause is not None:
         if isinstance(statement.where_clause, nodes.AExpr):
             a_expr_where(statement, aux, transformations, statement.where_clause)
@@ -204,32 +206,56 @@ def transform_a_expr_select(target_node):
 
 
 def a_expr_where(statement, aux, transformations, a_expr_node):
+    if isinstance(a_expr_node.lexpr, list):
+        for item in a_expr_node.lexpr:
+            pass
+    if isinstance(a_expr_node.lexpr, nodes.Node):
+        pass
+    if isinstance(a_expr_node.rexpr, list):
+        for item in a_expr_node.lexpr:
+            pass
+    if isinstance(a_expr_node.rexpr, nodes.Node):
+        pass
     if isinstance(a_expr_node.rexpr, nodes.SubLink):
         aux.where_clause = where_other(a_expr_node)
         save_change(aux, statement, transformations, "A.7")
         detected_case = select_match_case_3(a_expr_node.rexpr.subselect)
-        for item in detected_case:
-            aux.where_clause.rexpr.subselect = item['transformacion']
-            save_change(aux, statement, transformations, "Subquery")
+        if detected_case:
+            for item in detected_case:
+                aux.where_clause.rexpr.subselect = item['transformacion']
+                save_change(aux, statement, transformations, "Subquery")
     else:
         aux.where_clause = where_simple(statement.where_clause)
         save_change(aux, statement, transformations, "B.3-B.6")
 
 
 def bool_expr_where(statement, aux, transformations, bool_expr_node):
-    for arg in bool_expr_node.args:
-        if isinstance(arg, nodes.SubLink):
-            aux.where_clause = where_compuesto_bool(statement.where_clause)
-            save_change(aux, statement, transformations, "A.2/A.3")
-            detected_case = select_match_case_3(statement.where_clause.args[0].subselect)
-            for item in detected_case:
-                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
-                save_change(aux, statement, transformations, "Subquery")
+    if bool_expr_node.boolop == 2:
+        for arg in bool_expr_node.args:
+            if isinstance(arg, nodes.SubLink):
+                if arg.sub_link_type == 2:
+                    aux.where_clause = where_compuesto_bool(statement.where_clause)
+                    save_change(aux, statement, transformations, "A.2/A.3")
+                if arg.sub_link_type == 0:
+                    aux.where_clause = where_exists(statement.where_clause)
+                    save_change(aux, statement, transformations, "A.4/A.5")
+                detected_case = select_match_case_3(statement.where_clause.args[0].subselect)
+                if detected_case:
+                    for item in detected_case:
+                        aux.where_clause.args[0].subselect = '(' + item['transformacion'] + ')'
+                        save_change(aux, statement, transformations, "Subquery")
+
 
 
 def sub_link_where(statement, aux, transformations, sub_link_node):
     aux.where_clause = where_compuesto(sub_link_node)
     save_change(aux, statement, transformations, "A.1/A.6")
+
+
+"""CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
+def get_from_tables(from_clause):
+    for column in from_clause:
+        pass
 
 
 """IGUAL QUE MATCH CASE 3 PERO SOLO EL SELECT"""
@@ -251,48 +277,11 @@ def select_match_case_4(statement):
     return transformations
 
 
-"""IGUAL QUE SELECT MATCH CASE PERO SOLO WHERE"""
-def where_match_case(statement):
-    aux = copy.deepcopy(statement)
-    transformations = list()
-    if statement.where_clause:
-        if isinstance(statement.where_clause, nodes.AExpr):
-            a_expr_where(statement, aux, transformations, statement.where_clause)
-        if isinstance(statement.where_clause, nodes.BoolExpr):
-            for arg in statement.where_clause.args:
-                if isinstance(arg, nodes.AExpr):
-                    a_expr_where(statement, aux, transformations, arg)
-                elif isinstance(arg, nodes.SubLink):
-                    info = select_match_case_3(arg.subselect)
-                    for item in info:
-                        aux.where_clause.args[0].subselect = '(' + item['transformacion'] + ')'
-                        serialized = printer.serialize([aux])
-                        transformations.append(dict(transformacion=serialized))
-                        aux.where_clause.args[0].subselect = statement.where_clause.args[0]
-                else:
-                    aux.where_clause = where_compuesto_bool(statement.where_clause)
-                    save_change(aux, statement, transformations)
-        if isinstance(statement.where_clause, nodes.SubLink):
-            aux.where_clause = where_compuesto(statement.where_clause)
-            save_change(aux, statement, transformations)
-    return transformations
-
-
-"""PROBAR METODO APPLY TRANSFORMATION EN DEEP SEARCH"""
-def where_match_case_2(statement):
-    aux = copy.deepcopy(statement)
-    transformations = list()
-    if statement.where_clause:
-        statement.where_clause.apply_transformation()
-    return transformations
-
-
 def save_change(aux, statement, transformations, info):
     serialized = printer.serialize([aux])
     transformations.append(dict(transformacion=serialized, info=info))
     aux.target_list = statement.target_list
     aux.where_clause = statement.where_clause
-
 
 
 def save_changes(current_target, position, detected_case):
@@ -361,21 +350,20 @@ def where_compuesto_bool(current_node):
     equivalent2 = ""
     subnode = current_node.args[0]
     subselect_str = node_to_str(subnode.subselect)
-    if subnode.sub_link_type == 2:
-        testexpr = subnode.testexpr.fields[0].str
-        columns = node_to_str(subnode.subselect.target_list)
-        if subnode.oper_name is not None:
-            # CASO A.2 - HAY UN ANY
-            oper_name = subnode.oper_name[0].str
-            neg_sign = negate_operator(oper_name)
-            equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
-            equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns} )"
-        else:
-            # CASO A.3 - HAY UN IN
-            equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
-            # NOT EXISTS (QUEY AND X = COL)
-            # X <> ALL (QUERY)
-            equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
+    testexpr = subnode.testexpr.fields[0].str
+    columns = node_to_str(subnode.subselect.target_list)
+    if subnode.oper_name is not None:
+        # CASO A.2 - HAY UN ANY
+        oper_name = subnode.oper_name[0].str
+        neg_sign = negate_operator(oper_name)
+        equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
+        equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns})"
+    else:
+        # CASO A.3 - HAY UN IN
+        equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
+        # NOT EXISTS (QUEY AND X = COL)
+        # X <> ALL (QUERY)
+        equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
     return equivalent
 
 
@@ -388,6 +376,12 @@ def where_other(current_node):
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
     equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
+    return equivalent
+
+
+def where_exists(current_node):
+    equivalent = ""
+
     return equivalent
 
 
