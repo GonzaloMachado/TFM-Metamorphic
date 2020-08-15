@@ -5,7 +5,7 @@ import printer2 as printer
 import prueba_db
 import six, copy
 
-DEFINED_CASES = {}
+NODE_ANALYZERS = {}
 "Registry of specialized printers."
 
 
@@ -17,161 +17,55 @@ DEFINED_CASES = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    #query_string = "select ka||level from ta where ka > (select ka||level from ta)"
-    query_string = "select colA from T2 where a<b and c>d"
-    #query_string = "select colA from T2 as A where NOT x > any (select * from T2)"
+    # query_string = "select ka||level from ta where ka > (select ka||level from ta)"
+    # query_string = "select colA from T2 where a<(select ka||level from ta) and  c > (select ka from ta)"
+    query_string = "select colA from T2 where a < (select ka||level from ta where x>2)"
+    # query_string = "select colA from T2 as A where NOT x > any (select * from T2)"
+    # query_string = "select colA from T2 as A where x <> all (select ka || level from T1 where a<2)"
+    # query_string = "select colA from t1 where a in (b,3,5,6)"
     parsed_tree = parse(query_string)
-    """se limpia el arbol"""
-    # allData = list()
-    # for statement in parsed_tree:
-    #     allData.append(clean_tree(statement))
-    """Se buscan los casos y se hacen transformaciones"""
-    # equivalent = select_match_case(allData[0])
-    # propagate_nullable(parsed_tree[0])
-    #serialized = printer.serialize(parsed_tree)
-    print("Original")
     print(printer.serialize([parsed_tree[0]]))
-    # parsed_tree[0].apply_transformation()
-    # equivalent2 = select_match_case_3(parsed_tree[0])
-    #equivalent = select_match_case_2(parsed_tree[0])
     equivalent = select_match_case_3(parsed_tree[0])
     for item in equivalent:
         print(item["info"])
         print(item["transformacion"])
-    # print(serialized)
-    # other = parse(equivalent)
     print('done')
 
-
-def clean_tree(statement):
-    """Function to extract most important information from the parsed tree"""
-    """Se puede mejorar usando decoradores, en vez de if/elif???????????"""
-    statement_dict = dict()
-    if statement.target_list:
-        _fields = []
-        for targetList in statement.target_list:
-            if isinstance(targetList.val, nodes.ColumnRef):
-                _fields.append(column_ref_type(targetList))
-            elif isinstance(targetList.val, nodes.AExpr):
-                _fields.append(a_expr_type(targetList.val))
-            elif isinstance(targetList.val, nodes.FuncCall):
-                _fields.append(func_call_type(targetList.val))
-        statement_dict['select'] = _fields
-    if statement.from_clause:
-        _tables = range_var_type(statement.from_clause)
-        statement_dict['from'] = _tables
-    if statement.where_clause:
-        # where_list = []
-        if isinstance(statement.where_clause, nodes.SubLink):
-            # print('Hay subquery')
-            _subqueryinfo = {}
-            statement_dict['where'] = statement.where_clause
-            _subqueryinfo = clean_tree(statement.where_clause.subselect)
-            statement_dict['subquery'] = _subqueryinfo
-        # # print('No hay subquery')
-        # elif isinstance(statement.where_clause, BoolExpr):
-        #     # where_list['boolop'] = statement.where_clause.boolop
-        #     if all([isinstance(argument, AExpr) for argument in statement.where_clause.args]):
-        #         print("all aExpr")
-        #         for args in statement.where_clause.args:
-        #             where_list.append({statement.where_clause.boolop: a_expr_type(args)})
-        else:
-            statement_dict['where'] = statement.where_clause
-        # _conditions = []
-        # for condition in statement.where_clause.oper_name:
-        #     _conditions.append(condition.str)
-        # statement_dict['conditions'] = _conditions
-
-    return statement_dict
-
-
-def clean_tree2(statement):
-    """Function to extract most important information from the parsed tree"""
-    """Se puede mejorar usando decoradores, en vez de if/elif???????????"""
-    # statement_dict = dict()
-    # statement_dict['select'] = statement.target_list
-    # statement_dict['from'] = statement.from_clause
-    # statement_dict['where'] = statement.where_clause
-    tree = list()
-    tree.append(statement.target_list)
-    tree.append(statement.from_clause)
-    tree.append(statement.where_clause)
-    return tree
-
-
-def propagate_nullable(tree):
-    tree.get_nullable_state()
-    tree.nullable = tree.nullable_results | tree.nullable_contents
 
 
 def get_case_for_node(node):
     """Get specific case implementation for given `node` instance."""
 
     try:
-        return DEFINED_CASES[type(node)]
+        return NODE_ANALYZERS[type(node)]
     except KeyError:
         return None
         # raise NotImplementedError("Printer for node %r is not implemented yet"
         #                           % node.__class__.__name__)
 
 
-def case_detector(node_class):
+def node_analyzer(node_class):
     """Decorator to change a specific case in sql statement"""
 
     def decorator(impl):
-        assert printer.isclass(node_class)
-        assert node_class not in DEFINED_CASES
-        DEFINED_CASES[node_class] = impl
+        assert node_class not in NODE_ANALYZERS
+        NODE_ANALYZERS[node_class] = impl
         return impl
 
     return decorator
 
 
-"""HAY ERRORES DE SOBREESCRITURA DEL NODO, SE PIERDE INFO"""
-def select_match_case_2(statement):
-    """Función que utiliza el parsed tree para conseguir casos."""
-    changes = []
-    if statement.nullable:
-        if statement.target_list is not None:
-            for position, current_target in enumerate(statement.target_list):
-                if isinstance(current_target.val, nodes.AExpr):
-                    detected_case = transform_a_expr_select(current_target.val)
-                    current_change = save_changes(current_target, position, detected_case)
-                    changes.append(current_change)
-                    statement.target_list[position] = current_change['change']
-                    serialized = printer.serialize([statement])
-                    # print(serialized)
-                else:
-                    print("No cases found in target_list")
-        if statement.where_clause is not None:
-            """HAY QUE MEJORAR EL MATCH DEL CASO"""
-            """Funcion que se encargue de los SubLink?"""
-            if isinstance(statement.where_clause, nodes.BoolExpr) and isinstance(statement.where_clause.args[0], nodes.SubLink):
-                where_compuesto_bool(statement.where_clause)
-            elif isinstance(statement.where_clause, nodes.AExpr) and isinstance(statement.where_clause.rexpr, nodes.SubLink):
-                statement.where_clause = where_other(statement.where_clause)
-                # print(printer.serialize([statement]))
-                """Ya se cambió a STR *error*"""
-                # select_match_case_2(statement.where_clause.rexpr.subselect)
-            elif isinstance(statement.where_clause, nodes.SubLink):
-                where_compuesto(statement.where_clause)
-            else:
-                """NO SE PUEDE SUSTITUIR T0D0 EL WHERE_CLAUSE"""
-                statement.where_clause = where_simple(statement.where_clause)
-                serialized = printer.serialize([statement])
-                # print(serialized)
-                """HAY QUE GUARDAR EL CAMBIO"""
-    else:
-        print("No hay nodos nullables")
-    return changes
+def analize_node(statement, aux, transformations, node):
+    case = get_case_for_node(node)
+    case(statement, aux, transformations, node)
 
 
 """SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
+@node_analyzer(nodes.SelectStmt)
 def select_match_case_3(statement):
     aux = copy.deepcopy(statement)
     transformations = list()
     if statement.target_list is not None:
-    # if statement.target_list is not None and statement.nullable_results:
         for position, current_target in enumerate(statement.target_list):
             if isinstance(current_target.val, nodes.AExpr):
                 if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
@@ -182,12 +76,15 @@ def select_match_case_3(statement):
                 print("No cases found in target_list")
     from_info = get_from_tables(statement.from_clause)
     if statement.where_clause is not None:
-        if isinstance(statement.where_clause, nodes.AExpr):
-            a_expr_where(statement, aux, transformations, statement.where_clause)
-        elif isinstance(statement.where_clause, nodes.BoolExpr):
-            bool_expr_where(statement, aux, transformations, statement.where_clause)
-        elif isinstance(statement.where_clause, nodes.SubLink):
-            sub_link_where(statement, aux, transformations, statement.where_clause)
+        # func = get_case_for_node(statement, aux, transformations, statement.where_clause)
+        # func( statement.where_clause)
+        analize_node(statement, aux, transformations, aux.where_clause)
+        # if isinstance(statement.where_clause, nodes.AExpr):
+        #     a_expr_where(statement, aux, transformations, statement.where_clause)
+        # elif isinstance(statement.where_clause, nodes.BoolExpr):
+        #     bool_expr_where(statement, aux, transformations, statement.where_clause)
+        # elif isinstance(statement.where_clause, nodes.SubLink):
+        #     sub_link_where(statement, aux, transformations, statement.where_clause)
     return transformations
 
 
@@ -205,31 +102,50 @@ def transform_a_expr_select(target_node):
     return equivalent
 
 
+"""DEBERIA ENCARGARSE DE B3 B4 B5 B6 A1 A7"""
+@node_analyzer(nodes.AExpr)
 def a_expr_where(statement, aux, transformations, a_expr_node):
-    if isinstance(a_expr_node.lexpr, list):
-        for item in a_expr_node.lexpr:
-            pass
-    if isinstance(a_expr_node.lexpr, nodes.Node):
-        pass
-    if isinstance(a_expr_node.rexpr, list):
-        for item in a_expr_node.lexpr:
-            pass
-    if isinstance(a_expr_node.rexpr, nodes.Node):
-        pass
+    if a_expr_node.kind in (0, 6, 7, 10):
+        equiv = where_simple(a_expr_node)
+        a_expr_node.equivalent.append(equiv)
+        # save_change(aux, statement, transformations, 'B.3-B.6')
     if isinstance(a_expr_node.rexpr, nodes.SubLink):
-        aux.where_clause = where_other(a_expr_node)
-        save_change(aux, statement, transformations, "A.7")
+        equiv2 = where_other(a_expr_node)
+        a_expr_node.equivalent.append(equiv2)
+        # save_change(aux, statement, transformations, "A.7")
         detected_case = select_match_case_3(a_expr_node.rexpr.subselect)
         if detected_case:
             for item in detected_case:
-                aux.where_clause.rexpr.subselect = item['transformacion']
+                a_expr_node.rexpr = "("+item['transformacion']+")"
                 save_change(aux, statement, transformations, "Subquery")
-    else:
-        aux.where_clause = where_simple(statement.where_clause)
-        save_change(aux, statement, transformations, "B.3-B.6")
+    # if isinstance(a_expr_node.lexpr, list):
+    #     for item in a_expr_node.lexpr:
+    #         func = get_case_for_node(item)
+    #         if func:
+    #             equiv = func(statement, aux, transformations, item)
+    # if isinstance(a_expr_node.lexpr, nodes.Node):
+    #     func = get_case_for_node(a_expr_node.lexpr)
+    #     if func:
+    #         equiv = func(statement, aux, transformations, a_expr_node.lexpr)
+    # if isinstance(a_expr_node.rexpr, list):
+    #     for item in a_expr_node.rexpr:
+    #         func = get_case_for_node(item)
+    #         if func:
+    #             equiv = func(statement, aux, transformations, item)
+    # if isinstance(a_expr_node.rexpr, nodes.Node):
+    #     func = get_case_for_node(a_expr_node.rexpr)
+    #     if func:
+    #         equiv = func(statement, aux, transformations, a_expr_node.rexpr)
+    """Y SI HAY MAS DE UN CASO?"""
 
 
+@node_analyzer(nodes.BoolExpr)
 def bool_expr_where(statement, aux, transformations, bool_expr_node):
+    for position, arg in enumerate(bool_expr_node.args):
+        analize_node(statement, aux, transformations, arg)
+        for change in arg.equivalent:
+            aux.where_clause.args[position] = change
+            save_change(aux, statement, transformations, "")
     if bool_expr_node.boolop == 2:
         for arg in bool_expr_node.args:
             if isinstance(arg, nodes.SubLink):
@@ -237,19 +153,25 @@ def bool_expr_where(statement, aux, transformations, bool_expr_node):
                     aux.where_clause = where_compuesto_bool(statement.where_clause)
                     save_change(aux, statement, transformations, "A.2/A.3")
                 if arg.sub_link_type == 0:
-                    aux.where_clause = where_exists(statement.where_clause)
-                    save_change(aux, statement, transformations, "A.4/A.5")
+                     aux.where_clause = where_exists(statement.where_clause)
+                     save_change(aux, statement, transformations, "A.4/A.5")
                 detected_case = select_match_case_3(statement.where_clause.args[0].subselect)
                 if detected_case:
-                    for item in detected_case:
+                     for item in detected_case:
                         aux.where_clause.args[0].subselect = '(' + item['transformacion'] + ')'
                         save_change(aux, statement, transformations, "Subquery")
 
 
-
+@node_analyzer(nodes.SubLink)
 def sub_link_where(statement, aux, transformations, sub_link_node):
+    # equivalent = where_compuesto(sub_link_node)
     aux.where_clause = where_compuesto(sub_link_node)
     save_change(aux, statement, transformations, "A.1/A.6")
+    detected_case = select_match_case_3(sub_link_node.subselect)
+    if detected_case:
+        for item in detected_case:
+            aux.where_clause.subselect = item['transformacion']
+            save_change(aux, statement, transformations, "Subquery")
 
 
 """CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
@@ -258,38 +180,12 @@ def get_from_tables(from_clause):
         pass
 
 
-"""IGUAL QUE MATCH CASE 3 PERO SOLO EL SELECT"""
-def select_match_case_4(statement):
-    aux = copy.deepcopy(statement)
-    transformations = list()
-    if statement.target_list is not None:
-    # if statement.target_list is not None and statement.nullable_results:
-        for position, current_target in enumerate(statement.target_list):
-            if isinstance(current_target.val, nodes.AExpr):
-                detected_case = transform_a_expr_select(current_target.val)
-                aux.target_list[position] = detected_case
-                serialized = printer.serialize([aux])
-                transformations.append(dict(transformacion=serialized))
-                # print(serialized)
-                aux.target_list[position] = statement.target_list[position]
-            else:
-                print("No cases found in target_list")
-    return transformations
-
-
 def save_change(aux, statement, transformations, info):
     serialized = printer.serialize([aux])
+    # print(serialized)
     transformations.append(dict(transformacion=serialized, info=info))
-    aux.target_list = statement.target_list
-    aux.where_clause = statement.where_clause
-
-
-def save_changes(current_target, position, detected_case):
-    current_change = dict()
-    current_change['node'] = current_target
-    current_change['position'] = position
-    current_change['change'] = detected_case
-    return current_change
+    aux.target_list = copy.deepcopy(statement.target_list)
+    aux.where_clause = copy.deepcopy(statement.where_clause)
 
 
 def node_to_str(target_node):
@@ -298,35 +194,51 @@ def node_to_str(target_node):
     return serializer.getvalue()
 
 
+def case_b3(current_node):
+    equivalent = ""
+    string_value = node_to_str(current_node)
+    equivalent += string_value
+    if isinstance(current_node.lexpr, list):
+        for item in current_node.lexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.lexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.lexpr)} IS NULL"
+    if isinstance(current_node.rexpr, list):
+        for item in current_node.rexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.rexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.rexpr)} IS NULL"
+    return "(" + equivalent + ")"
+
+
+"""CASO B4 ,B5 Y B6"""
 def where_simple(current_node):
     equivalent = ""
     string_value = node_to_str(current_node)
-    if isinstance(current_node, nodes.AExpr):
-        if current_node.kind == 0:
-            """Kind 0 es comp"""
-            equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 10 or current_node.kind == 11:
-            """Kind 10/11 es BETWEEN/NOT BETWEEN"""
-            if isinstance(current_node.rexpr, list):
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null"
-                for item in current_node.rexpr:
-                    equivalent += f" OR {node_to_str(item)} is null"
-            else:
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 6:
-            """Kind 6 es IN/NOT IN"""
-            if isinstance(current_node.rexpr, list):
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null"
-                for item in current_node.rexpr:
-                    equivalent += f" OR {node_to_str(item)} is null"
-            else:
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 7:
-            """Kind 7 es LIKE/NOT LIKE"""
-            equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-    return equivalent
+    equivalent += string_value
+    # equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
+    if isinstance(current_node.lexpr, list):
+        for item in current_node.lexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.lexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.lexpr)} IS NULL"
+    if isinstance(current_node.rexpr, list):
+        for item in current_node.rexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.rexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.rexpr)} IS NULL"
+    return "(" + equivalent + ")"
 
 
+"""CASO A1 Y A6"""
 def where_compuesto(current_node):
     equivalent = ""
     equivalent2 = ""
@@ -342,7 +254,19 @@ def where_compuesto(current_node):
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
-    return equivalent
+    return "(" + equivalent + ")"
+
+
+"""CASO A.7"""
+def where_other(current_node):
+    equivalent = ""
+    subnode = current_node.rexpr
+    subselect_str = node_to_str(subnode.subselect)
+    testexpr = node_to_str(current_node.lexpr)
+    oper_name = current_node.name[0].str
+    neg_sign = negate_operator(oper_name)
+    equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
+    return "(" + equivalent + ")"
 
 
 def where_compuesto_bool(current_node):
@@ -364,19 +288,8 @@ def where_compuesto_bool(current_node):
         # NOT EXISTS (QUEY AND X = COL)
         # X <> ALL (QUERY)
         equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
-    return equivalent
+    return "(" + equivalent + ")"
 
-
-"""CASO A.7"""
-def where_other(current_node):
-    equivalent = ""
-    subnode = current_node.rexpr
-    subselect_str = node_to_str(subnode.subselect)
-    testexpr = node_to_str(current_node.lexpr)
-    oper_name = current_node.name[0].str
-    neg_sign = negate_operator(oper_name)
-    equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
-    return equivalent
 
 
 def where_exists(current_node):
@@ -390,103 +303,6 @@ def negate_operator(operator):
     negate_operators = ['>=', '>', '<=', '<', '<>', '=']
     index_search = defined_operators.index(operator)
     return negate_operators[index_search]
-
-
-def print_statement(cleaned_tree):
-    query = " FROM "
-    first = True
-    for tables in cleaned_tree['tables']:
-        if first:
-            first = False
-        else:
-            query += ', '
-        query += f'{tables["relname"]} AS {tables["alias"]}' if tables["alias"] is not None else tables["relname"]
-    if cleaned_tree['where'] is not None:
-        query += " WHERE "
-        if isinstance(cleaned_tree['where'], nodes.AExpr):
-            query += print_a_expr(cleaned_tree['where'])
-        elif isinstance(cleaned_tree['where'], nodes.BoolExpr):
-            first = True
-            for argument in cleaned_tree['where'].args:
-                if first:
-                    first = False
-                else:
-                    query += (' AND ', ' OR ')[cleaned_tree['where'].boolop]
-                if isinstance(argument, nodes.AExpr):
-                    query += print_a_expr(argument)
-                elif isinstance(argument, nodes.BoolExpr):
-                    query += print_bool_expr(argument)
-                elif isinstance(argument, nodes.NullTest):
-                    query += print_null_test(argument)
-    else:
-        print_statement(cleaned_tree['subquery'])
-    return query
-
-
-def print_a_expr(expression):
-    # PUEDE FALTAR EL ATRIBUTO KIND
-    query = ""
-    if expression.kind == 0:
-        query += f"{expression.lexpr.fields[0].val}{expression.name[0].val}"
-    if isinstance(expression.rexpr, nodes.AConst):
-        query += f"{expression.rexpr.val}"
-    elif isinstance(expression.rexpr, nodes.ColumnRef):
-        query += f"'{expression.rexpr.fields[0].val}'"
-    return query
-
-
-def print_bool_expr(expression):
-    query = ""
-    first = True
-    for arg in expression.args:
-        if first:
-            first = False
-        else:
-            query += (' AND ', ' OR ')[expression.boolop]
-        if isinstance(arg, nodes.AExpr):
-            query += print_a_expr(arg)
-    return query
-
-
-def print_null_test(expression):
-    query = f"{expression.arg.fields[0].val}"
-    query += (' IS NULL ', ' IS NOT NULL ')[expression.nulltesttype]
-    return query
-
-
-def print_func_call(expression):
-    query = ""
-    query += f"{expression['funcname']}(" + ','.join([x for x in expression['args']]) + ")"
-    return query
-
-
-def caso_uno_cleaned(expression):
-    """Funcion para sustituir el caso 1 en cleaned_tree"""
-    # Elemento neutro de la operacion.
-    if expression['arithoper'] == ('+' or '-'):
-        if isinstance(expression['lexpr'], dict):
-            equivalent_statement = caso_uno_cleaned(
-                expression['lexpr']) + f" {expression['arithoper']} COALESCE({expression['rexpr']},0)"
-        else:
-            equivalent_statement = f"COALESCE({expression['lexpr']},0) {expression['arithoper']} COALESCE({expression['rexpr']},0)"
-    else:
-        if isinstance(expression['lexpr'], dict):
-            equivalent_statement = caso_uno_cleaned(
-                expression['lexpr']) + f" {expression['arithoper']} COALESCE({expression['rexpr']},1)"
-        else:
-            equivalent_statement = f"COALESCE({expression['lexpr']},1) {expression['arithoper']} COALESCE({expression['rexpr']},1)"
-    return equivalent_statement
-
-
-def caso_dos_cleaned(expression):
-    """Funcion para sustituir el caso 2 en cleaned_tree"""
-    #  PREGUNTAR EQUIVALENTE DE FUNCIONES
-    if isinstance(expression['lexpr'], dict):
-        equivalent_statement = caso_dos_cleaned(
-            expression['lexpr']) + f" {expression['arithoper']} COALESCE({expression['rexpr']},'')"
-    else:
-        equivalent_statement = f"COALESCE({expression['lexpr']},'') {expression['arithoper']} COALESCE({expression['rexpr']},'')"
-    return equivalent_statement
 
 
 def range_var_type(from_clause):
