@@ -18,14 +18,16 @@ NODE_ANALYZERS = {}
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
     # query_string = "select ka||level from ta where ka > (select ka||level from ta)"
-    # query_string = "select colA from T2 where a<(select ka||level from ta) and  c > (select ka from ta)"
-    query_string = "select colA from T2 where a < (select ka||level from ta where x>2)"
+    #query_string = "select colA from T2 where a < (select ka from ta) and  c > (select ka||level  from ta where x>2)"
+    # query_string = "select colA from T2 where (select ka||level from ta where x>2)"
     # query_string = "select colA from T2 as A where NOT x > any (select * from T2)"
     # query_string = "select colA from T2 as A where x <> all (select ka || level from T1 where a<2)"
     # query_string = "select colA from t1 where a in (b,3,5,6)"
+    query_string = "select colA from T2 where a < (select a+b from ta where x > y)"
     parsed_tree = parse(query_string)
     print(printer.serialize([parsed_tree[0]]))
-    equivalent = select_match_case_3(parsed_tree[0])
+    equivalent = select_match_case_3(parsed_tree[0], None, None, parsed_tree[0])
+    # analize_node(parsed_tree[0], None, None, parsed_tree[0])
     for item in equivalent:
         print(item["info"])
         print(item["transformacion"])
@@ -57,16 +59,17 @@ def node_analyzer(node_class):
 
 def analize_node(statement, aux, transformations, node):
     case = get_case_for_node(node)
-    case(statement, aux, transformations, node)
+    if case:
+        case(statement, aux, transformations, node)
 
 
 """SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
 @node_analyzer(nodes.SelectStmt)
-def select_match_case_3(statement):
-    aux = copy.deepcopy(statement)
+def select_match_case_3(statement, aux, transformations, node):
+    aux = copy.deepcopy(node)
     transformations = list()
-    if statement.target_list is not None:
-        for position, current_target in enumerate(statement.target_list):
+    if node.target_list is not None:
+        for position, current_target in enumerate(node.target_list):
             if isinstance(current_target.val, nodes.AExpr):
                 if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
                     detected_case = transform_a_expr_select(current_target.val)
@@ -75,10 +78,13 @@ def select_match_case_3(statement):
             else:
                 print("No cases found in target_list")
     from_info = get_from_tables(statement.from_clause)
-    if statement.where_clause is not None:
+    if node.where_clause is not None:
         # func = get_case_for_node(statement, aux, transformations, statement.where_clause)
         # func( statement.where_clause)
-        analize_node(statement, aux, transformations, aux.where_clause)
+        analize_node(statement, aux, transformations, node.where_clause)
+        for change in aux.where_clause.equivalent:
+            aux.where_clause = change
+            save_change(aux, statement, transformations, "")
         # if isinstance(statement.where_clause, nodes.AExpr):
         #     a_expr_where(statement, aux, transformations, statement.where_clause)
         # elif isinstance(statement.where_clause, nodes.BoolExpr):
@@ -102,41 +108,35 @@ def transform_a_expr_select(target_node):
     return equivalent
 
 
-"""DEBERIA ENCARGARSE DE B3 B4 B5 B6 A1 A7"""
+"""DEBERIA ENCARGARSE DE B3 B4 B5 B6 A1 A7 Y REVISAR EL NODO ENTERO LEXPR Y REXPR"""
 @node_analyzer(nodes.AExpr)
 def a_expr_where(statement, aux, transformations, a_expr_node):
     if a_expr_node.kind in (0, 6, 7, 10):
         equiv = where_simple(a_expr_node)
         a_expr_node.equivalent.append(equiv)
+    if isinstance(a_expr_node.lexpr, list):
+        for item in a_expr_node.lexpr:
+            analize_node(statement, aux, transformations, item)
+    if isinstance(a_expr_node.lexpr, nodes.Node):
+        analize_node(statement, aux, transformations, a_expr_node.lexpr)
+    if isinstance(a_expr_node.rexpr, list):
+        for item in a_expr_node.rexpr:
+            analize_node(statement, aux, transformations, item)
+    if isinstance(a_expr_node.rexpr, nodes.Node):
+        analize_node(statement, aux, transformations, a_expr_node.rexpr)
         # save_change(aux, statement, transformations, 'B.3-B.6')
-    if isinstance(a_expr_node.rexpr, nodes.SubLink):
-        equiv2 = where_other(a_expr_node)
-        a_expr_node.equivalent.append(equiv2)
-        # save_change(aux, statement, transformations, "A.7")
-        detected_case = select_match_case_3(a_expr_node.rexpr.subselect)
-        if detected_case:
-            for item in detected_case:
-                a_expr_node.rexpr = "("+item['transformacion']+")"
-                save_change(aux, statement, transformations, "Subquery")
-    # if isinstance(a_expr_node.lexpr, list):
-    #     for item in a_expr_node.lexpr:
-    #         func = get_case_for_node(item)
-    #         if func:
-    #             equiv = func(statement, aux, transformations, item)
-    # if isinstance(a_expr_node.lexpr, nodes.Node):
-    #     func = get_case_for_node(a_expr_node.lexpr)
-    #     if func:
-    #         equiv = func(statement, aux, transformations, a_expr_node.lexpr)
-    # if isinstance(a_expr_node.rexpr, list):
-    #     for item in a_expr_node.rexpr:
-    #         func = get_case_for_node(item)
-    #         if func:
-    #             equiv = func(statement, aux, transformations, item)
-    # if isinstance(a_expr_node.rexpr, nodes.Node):
-    #     func = get_case_for_node(a_expr_node.rexpr)
-    #     if func:
-    #         equiv = func(statement, aux, transformations, a_expr_node.rexpr)
-    """Y SI HAY MAS DE UN CASO?"""
+    # if isinstance(a_expr_node.rexpr, nodes.SubLink):
+    #     equiv2 = where_other(a_expr_node)
+    #     a_expr_node.equivalent.append(equiv2)
+    #     # save_change(aux, statement, transformations, "A.7")
+    #     detected_case = select_match_case_3(a_expr_node.rexpr.subselect)
+    #     if detected_case:
+    #         for item in detected_case:
+    #             #print("SE DETECTO UNA TRANSFORMACION")
+    #             #print(item)
+    #             """OJO ESTÁ CABLEADO NO SIRVE"""
+    #             aux.where_clause.args[0].rexpr = "("+item['transformacion']+")"
+    #             save_change(aux, statement, transformations, "Subquery")
 
 
 @node_analyzer(nodes.BoolExpr)
@@ -165,13 +165,16 @@ def bool_expr_where(statement, aux, transformations, bool_expr_node):
 @node_analyzer(nodes.SubLink)
 def sub_link_where(statement, aux, transformations, sub_link_node):
     # equivalent = where_compuesto(sub_link_node)
-    aux.where_clause = where_compuesto(sub_link_node)
-    save_change(aux, statement, transformations, "A.1/A.6")
-    detected_case = select_match_case_3(sub_link_node.subselect)
-    if detected_case:
-        for item in detected_case:
-            aux.where_clause.subselect = item['transformacion']
-            save_change(aux, statement, transformations, "Subquery")
+    if sub_link_node.sub_link_type == 1:
+        aux.where_clause = where_compuesto(sub_link_node)
+        save_change(aux, statement, transformations, "A.1/A.6")
+    analize_node(statement, aux, transformations, sub_link_node.subselect)
+    # detected_case = select_match_case_3(sub_link_node.subselect)
+    # if detected_case:
+    #     for item in detected_case:
+    #         """ NO ES GENERICO, SE ESTA CREANDO UNA VARIABLE NUEVA LLAMADA SUBSELECT DONDE NO VA, NO EXISTE PARA ESE NODO"""
+    #         sub_link_node.subselect = item['transformacion']
+    #         save_change(aux, statement, transformations, "Subquery "+item['info'])
 
 
 """CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
@@ -182,7 +185,8 @@ def get_from_tables(from_clause):
 
 def save_change(aux, statement, transformations, info):
     serialized = printer.serialize([aux])
-    # print(serialized)
+    #print("SE VA A GUARDAR:")
+    print(serialized)
     transformations.append(dict(transformacion=serialized, info=info))
     aux.target_list = copy.deepcopy(statement.target_list)
     aux.where_clause = copy.deepcopy(statement.where_clause)
