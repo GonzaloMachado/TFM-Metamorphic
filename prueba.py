@@ -1,9 +1,12 @@
+import string
+
 from psqlparse import parse, nodes
 from prueba_db import check_all_nullables_in_instance, check_nullable_column
 
 import printer2 as printer
 import prueba_db
 import six, copy
+
 
 NODE_ANALYZERS = {}
 "Registry of specialized printers."
@@ -17,22 +20,29 @@ NODE_ANALYZERS = {}
 
 def main():
     """Sentencia que se recibe desde el FRONTEND"""
-    # query_string = "select ka||level from ta where ka > (select ka||level from ta)"
-    #query_string = "select colA from T2 where a < (select ka from ta) and  c > (select ka||level  from ta where x>2)"
+    # query_string = "select ka||level, colA+colB from ta where ka > (select ka||level from ta)"
+    # query_string = "select colA from T2 where a < (select ka from ta) and  c > (select ka||level  from ta where x>2)"
     # query_string = "select colA from T2 where (select ka||level from ta where x>2)"
-    # query_string = "select colA from T2 as A where NOT x > any (select * from T2)"
+    # query_string = "select colA from T2 where NOT x > any (select colB from T2 where c>2)"
+    # query_string = "select miAlias.colA + miAlias.colB from T2 as miAlias where X NOT IN (select colB from T2 where c>2)"
+    # query_string = "select colA + colB from T2 where X NOT IN (select colB from T2 where c>2)"
+    query_string = "select col1 from T1 where not exists (select col2 from T2 where T1.col1 < T2.col2 and c)"
     # query_string = "select colA from T2 as A where x <> all (select ka || level from T1 where a<2)"
-    # query_string = "select colA from t1 where a in (b,3,5,6)"
-    query_string = "select colA from T2 where a < (select a+b from ta where x > y)"
+    # query_string = "select colA from t1 where x not in (1,2,3,4)"
+    # query_string = "select colA from T2 where a < (select a+b from ta where x > y)"
+    # query_string = "select colA+colB from T2 where x > (select a||level from ta)"
+    # query_string = "select colA  from t2 where not exists (select col from t where c and E.colA = col )"
     parsed_tree = parse(query_string)
     print(printer.serialize([parsed_tree[0]]))
-    equivalent = select_match_case_3(parsed_tree[0], None, None, parsed_tree[0])
+    #equivalent = select_match_case_3(parsed_tree[0], None, None, parsed_tree[0])
     # analize_node(parsed_tree[0], None, None, parsed_tree[0])
-    for item in equivalent:
-        print(item["info"])
-        print(item["transformacion"])
+    analize_node2(parsed_tree[0])
+    for item in parsed_tree[0].equivalent:
+        print(item)
+    # for item in equivalent:
+    #     print(item["info"])
+    #     print(item["transformacion"])
     print('done')
-
 
 
 def get_case_for_node(node):
@@ -63,8 +73,108 @@ def analize_node(statement, aux, transformations, node):
         case(statement, aux, transformations, node)
 
 
-"""SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
+def analize_node2(node):
+    case = get_case_for_node(node)
+    if case:
+        case(node)
+
 @node_analyzer(nodes.SelectStmt)
+def select_statement(node):
+    aux = copy.deepcopy(node)
+    transformations = list()
+    if node.target_list is not None:
+        for position, current_target in enumerate(node.target_list):
+            if isinstance(current_target.val, nodes.AExpr):
+                if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
+                    if isinstance(current_target.val.lexpr, nodes.ColumnRef):
+                        transform_a_expr_select(current_target.val)
+                        for change in current_target.val.equivalent:
+                            aux.target_list[position] = copy.deepcopy(change)
+                            save_change2(aux, node)
+                            aux = copy.deepcopy(node)
+            else:
+                print("No cases found in target_list")
+    if node.where_clause is not None:
+        analize_node2(node.where_clause)
+        for change in node.where_clause.equivalent:
+            aux.where_clause = copy.deepcopy(change)
+            save_change2(aux, node)
+
+
+@node_analyzer(nodes.AExpr)
+def a_expr(a_expr_node):
+    aux = copy.deepcopy(a_expr_node)
+    if a_expr_node.kind in (0, 6, 7, 10):
+        where_simple(a_expr_node)
+        if (isinstance(a_expr_node.lexpr, nodes.ColumnRef) or isinstance(a_expr_node.rexpr, nodes.ColumnRef)) and a_expr_node.kind == 0:
+            print("COL comp COL")
+    if isinstance(a_expr_node.lexpr, list):
+        for position, item in enumerate(a_expr_node.lexpr):
+            analize_node2(item)
+            for change in item.equivalent:
+                aux.lexpr[position] = copy.deepcopy(change)
+                save_change2(aux, a_expr_node)
+                aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.lexpr, nodes.Node):
+        analize_node2(a_expr_node.lexpr)
+        for change in a_expr_node.lexpr.equivalent:
+            aux.lexpr = copy.deepcopy(change)
+            save_change2(aux, a_expr_node)
+            aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.rexpr, list):
+        for position, item in enumerate(a_expr_node.rexpr):
+            analize_node2(item)
+            for change in item.equivalent:
+                aux.rexpr[position] = copy.deepcopy(change)
+                save_change2(aux, a_expr_node)
+                aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.rexpr, nodes.Node):
+        analize_node2(a_expr_node.rexpr)
+        for change in a_expr_node.rexpr.equivalent:
+            aux.rexpr = copy.deepcopy(change)
+            save_change2(aux, a_expr_node)
+            aux = copy.deepcopy(a_expr_node)
+
+
+@node_analyzer(nodes.BoolExpr)
+def bool_expr(bool_expr_node):
+    aux = copy.deepcopy(bool_expr_node)
+    for position, arg in enumerate(bool_expr_node.args):
+        analize_node2(arg)
+        for change in arg.equivalent:
+            aux.args[position] = copy.deepcopy(change)
+            save_change2(aux, bool_expr_node)
+            aux = copy.deepcopy(bool_expr_node)
+    if bool_expr_node.boolop == 2:
+        for arg in bool_expr_node.args:
+            if isinstance(arg, nodes.SubLink):
+                if arg.sub_link_type == 2:
+                    where_compuesto_bool(bool_expr_node)
+                    # save_change(aux, statement, transformations, "A.2/A.3")
+                if arg.sub_link_type == 0:
+                    """Verificar ALIAS"""
+                    columns = node_to_str(arg.subselect.target_list).split(" ")
+                    where_exists(bool_expr_node, columns)
+                    # save_change(aux, statement, transformations, "A.4/A.5")
+
+
+@node_analyzer(nodes.SubLink)
+def sub_link(sub_link_node):
+    aux = copy.deepcopy(sub_link_node)
+    # equivalent = where_compuesto(sub_link_node)
+    if sub_link_node.sub_link_type == 1:
+        where_compuesto(sub_link_node)
+        # save_change2(None, nodes.SubLink)
+    analize_node2(sub_link_node.subselect)
+    for change in sub_link_node.subselect.equivalent:
+        aux.subselect = copy.deepcopy(change)
+        save_change2(aux, sub_link_node)
+        aux = copy.deepcopy(sub_link_node)
+        # sub_link_node.equivalent.append("("+change+")")
+
+
+"""SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
+# @node_analyzer(nodes.SelectStmt)
 def select_match_case_3(statement, aux, transformations, node):
     aux = copy.deepcopy(node)
     transformations = list()
@@ -102,14 +212,16 @@ def transform_a_expr_select(target_node):
         identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
     if isinstance(target_node.lexpr, nodes.AExpr):
         equivalent = transform_a_expr_select(
-            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({'.'.join(c.str for c in target_node.rexpr.fields)},{identity_element})"
+
     else:
-        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
-    return equivalent
+        equivalent = f"COALESCE({'.'.join(c.str for c in target_node.lexpr.fields)},{identity_element}) {target_node.name[0].val} COALESCE({'.'.join(c.str for c in target_node.rexpr.fields)},{identity_element})"
+    target_node.equivalent.append(equivalent)
+    #return equivalent
 
 
 """DEBERIA ENCARGARSE DE B3 B4 B5 B6 A1 A7 Y REVISAR EL NODO ENTERO LEXPR Y REXPR"""
-@node_analyzer(nodes.AExpr)
+# @node_analyzer(nodes.AExpr)
 def a_expr_where(statement, aux, transformations, a_expr_node):
     if a_expr_node.kind in (0, 6, 7, 10):
         equiv = where_simple(a_expr_node)
@@ -139,7 +251,7 @@ def a_expr_where(statement, aux, transformations, a_expr_node):
     #             save_change(aux, statement, transformations, "Subquery")
 
 
-@node_analyzer(nodes.BoolExpr)
+# @node_analyzer(nodes.BoolExpr)
 def bool_expr_where(statement, aux, transformations, bool_expr_node):
     for position, arg in enumerate(bool_expr_node.args):
         analize_node(statement, aux, transformations, arg)
@@ -157,12 +269,12 @@ def bool_expr_where(statement, aux, transformations, bool_expr_node):
                      save_change(aux, statement, transformations, "A.4/A.5")
                 detected_case = select_match_case_3(statement.where_clause.args[0].subselect)
                 if detected_case:
-                     for item in detected_case:
+                    for item in detected_case:
                         aux.where_clause.args[0].subselect = '(' + item['transformacion'] + ')'
                         save_change(aux, statement, transformations, "Subquery")
 
 
-@node_analyzer(nodes.SubLink)
+# @node_analyzer(nodes.SubLink)
 def sub_link_where(statement, aux, transformations, sub_link_node):
     # equivalent = where_compuesto(sub_link_node)
     if sub_link_node.sub_link_type == 1:
@@ -179,8 +291,10 @@ def sub_link_where(statement, aux, transformations, sub_link_node):
 
 """CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
 def get_from_tables(from_clause):
+    tables = list()
     for column in from_clause:
-        pass
+        tables.append(column.relname)
+    return tables
 
 
 def save_change(aux, statement, transformations, info):
@@ -190,6 +304,12 @@ def save_change(aux, statement, transformations, info):
     transformations.append(dict(transformacion=serialized, info=info))
     aux.target_list = copy.deepcopy(statement.target_list)
     aux.where_clause = copy.deepcopy(statement.where_clause)
+
+
+def save_change2(aux, node):
+    serialized = printer.serialize([aux])
+    # print(serialized)
+    node.equivalent.append(serialized)
 
 
 def node_to_str(target_node):
@@ -239,7 +359,8 @@ def where_simple(current_node):
     else:
         if not isinstance(current_node.rexpr, nodes.AConst):
             equivalent += f" OR {node_to_str(current_node.rexpr)} IS NULL"
-    return "(" + equivalent + ")"
+    current_node.equivalent.append("(" + equivalent + ")")
+    #return "(" + equivalent + ")"
 
 
 """CASO A1 Y A6"""
@@ -258,7 +379,8 @@ def where_compuesto(current_node):
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
-    return "(" + equivalent + ")"
+    current_node.equivalent.append("(" + equivalent + ")")
+    # return "(" + equivalent + ")"
 
 
 """CASO A.7"""
@@ -270,7 +392,8 @@ def where_other(current_node):
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
     equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
-    return "(" + equivalent + ")"
+    current_node.equivalent.append("(" + equivalent + ")")
+    # return "(" + equivalent + ")"
 
 
 def where_compuesto_bool(current_node):
@@ -292,14 +415,45 @@ def where_compuesto_bool(current_node):
         # NOT EXISTS (QUEY AND X = COL)
         # X <> ALL (QUERY)
         equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
-    return "(" + equivalent + ")"
+    # return "(" + equivalent + ")"
+    current_node.equivalent.append("" + equivalent + "")
+    # current_node.equivalent.append("(" + equivalent2 + ")")
 
 
-
-def where_exists(current_node):
+def where_exists(current_node, columns):
     equivalent = ""
-
-    return equivalent
+    columns_ref = list()
+    subselect_statement = copy.deepcopy(current_node.args[0].subselect)
+    subselect_where = current_node.args[0].subselect.where_clause
+    internal_tables = get_from_tables(current_node.args[0].subselect.from_clause)
+    if isinstance(subselect_where, nodes.AExpr):
+        oper = subselect_where.name[0].str
+        if isinstance(subselect_where.lexpr, nodes.ColumnRef):
+            # columns_ref.append('.'.join(c.str for c in subselect_where.lexpr.fields))
+            columns_ref.append(subselect_where.lexpr.fields)
+        if isinstance(subselect_where.rexpr, nodes.ColumnRef):
+            # columns_ref.append('.'.join(c.str for c in subselect_where.rexpr.fields))
+            columns_ref.append(subselect_where.rexpr.fields)
+            subselect_statement.where_clause = None
+    elif isinstance(subselect_where, nodes.BoolExpr) and subselect_where.boolop == 0:
+        arg = subselect_where.args[0]
+        oper = arg.name[0].str
+        if isinstance(arg.lexpr, nodes.ColumnRef):
+            # columns_ref.append('.'.join(c.str for c in arg.lexpr.fields))
+            columns_ref.append(arg.lexpr.fields)
+        if isinstance(arg.rexpr, nodes.ColumnRef):
+            # columns_ref.append('.'.join(c.str for c in arg.rexpr.fields))
+            columns_ref.append(arg.rexpr.fields)
+        subselect_statement.where_clause = subselect_where.args[1]
+    for column in columns_ref:
+        if column[0].str not in internal_tables:
+    # if [column[0].str for column in columns_ref if column[0].str not in internal_tables]:
+            if oper == '=':
+                equivalent = f"{column[1].str} NOT IN ({node_to_str(subselect_statement)})"
+            else:
+                equivalent = f"NOT {column[1].str} {oper} ANY ({node_to_str(subselect_statement)})"
+                equivalent2 = f"{column[1].str} {negate_operator(oper)} ALL ({node_to_str(subselect_statement)})"
+    current_node.equivalent.append("" + equivalent + "")
 
 
 def negate_operator(operator):
