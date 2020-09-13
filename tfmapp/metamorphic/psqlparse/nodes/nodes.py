@@ -5,6 +5,8 @@ class Node(object):
 
     def __init__(self):
         self.nullable = False
+        self.transformations_applied = list()
+        self.equivalent = list()
 
     def tables(self):
         """

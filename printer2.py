@@ -9,6 +9,7 @@
 from contextlib import contextmanager
 from inspect import isclass
 from psqlparse import nodes, parse
+import six, copy
 
 from six import PY2, StringIO, string_types
 
@@ -270,14 +271,14 @@ def a_expr(node, output):
     elif node.kind == 6:
         output.print_node(node.lexpr)
         if node.name[0].str == '<>':
-            output.write('NOT')
+            output.write(' NOT')
         output.write(' IN (')
         output.print_expression(node.rexpr, ',')
         output.write(')')
     elif node.kind == 7:
         output.print_node(node.lexpr)
         if node.name[0].str == '!~~':
-            output.write('NOT')
+            output.write(' NOT')
         output.write(' LIKE ')
         output.print_node(node.rexpr)
     elif node.kind == 10 or node.kind == 11:
@@ -322,7 +323,7 @@ def bool_expr(node, output):
         output.write('NOT ')
         output.print_node(node.args[0])
     else:
-        operator = ('AND ', 'OR ')[node.boolop]
+        operator = ('AND ', 'OR ', 'NOT ')[node.boolop]
         output.print_expression(node.args, operator)
 
 
@@ -729,8 +730,10 @@ def sub_link(node, output):
         for operator in node.oper_name:
             output.write(' ')
             output.write(operator.str)
+            output.write((' EXISTS ', ' ALL ', ' ANY ', '', '')[node.sub_link_type])
+    else:
+        output.write((' EXISTS ', ' ALL ', ' IN ', '', '')[node.sub_link_type])
     # output.write(' ')
-    output.write((' EXISTS ', ' ALL ', ' ANY ', '', '')[node.sub_link_type])
     output.write('(')
     with output.push_indent():
         output.print_node(node.subselect)
@@ -846,6 +849,16 @@ def str_type(node, output):
     output.write(node)
 
 
-def str_type(node, output):
-    output.write(node)
+@node_printer(dict)
+def dict_type(node, output):
+    for item, value in node.items():
+        if item == 'CoalesceExpr':
+            output.write('COALESCE(')
+            output.print_node(value["args"][0]["ColumnRef"]["fields"][0]["String"]["str"])
+            output.write(',')
+            if value["args"][1]["A_Const"]["val"] == 'integer':
+                output.write(str(value["args"][1]["A_Const"]["val"]["integer"]["ival"]))
+            else:
+                output.write("''")
+            output.write(')')
 

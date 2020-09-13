@@ -17,6 +17,7 @@ class SelectStmt(Statement):
     statement = 'SELECT'
 
     def __init__(self, obj):
+        super().__init__()
         self.distinct_clause = build_from_item(obj, 'distinctClause')
         self.into_clause = build_from_item(obj, 'intoClause')
         self.target_list = build_from_item(obj, 'targetList')

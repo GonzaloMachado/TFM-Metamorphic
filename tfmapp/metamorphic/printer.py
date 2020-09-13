@@ -278,14 +278,14 @@ def a_expr(node, output):
     elif node.kind == 6:
         output.print_node(node.lexpr)
         if node.name[0].str == '<>':
-            output.write('NOT')
+            output.write(' NOT')
         output.write(' IN (')
         output.print_expression(node.rexpr, ',')
         output.write(')')
     elif node.kind == 7:
         output.print_node(node.lexpr)
         if node.name[0].str == '!~~':
-            output.write('NOT')
+            output.write(' NOT')
         output.write(' LIKE ')
         output.print_node(node.rexpr)
     elif node.kind == 10 or node.kind == 11:
@@ -334,7 +334,7 @@ def bool_expr(node, output):
         output.write('NOT ')
         output.print_node(node.args[0])
     else:
-        operator = ('AND ', 'OR ')[node.boolop]
+        operator = ('AND ', 'OR ', 'NOT ')[node.boolop]
         output.print_expression(node.args, operator)
 
 
@@ -857,3 +857,16 @@ def list_type(node, output):
 def str_type(node, output):
     output.write(node)
 
+
+@node_printer(dict)
+def dict_type(node, output):
+    for item, value in node.items():
+        if item == 'CoalesceExpr':
+            output.write('COALESCE(')
+            output.print_node(value["args"][0]["ColumnRef"]["fields"][0]["String"]["str"])
+            output.write(',')
+            if value["args"][1]["A_Const"]["val"] == 'integer':
+                output.write(str(value["args"][1]["A_Const"]["val"]["integer"]["ival"]))
+            else:
+                output.write("''")
+            output.write(')')

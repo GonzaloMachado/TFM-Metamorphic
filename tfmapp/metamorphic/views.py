@@ -1,25 +1,35 @@
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
-from django.urls import reverse_lazy
+from django.shortcuts import redirect
+from django.urls import reverse, reverse_lazy
 from django.contrib.auth.models import User
 from django.views.generic import CreateView, UpdateView, TemplateView, ListView, DeleteView
 from django.views.generic.detail import DetailView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth import logout
 from django.db.models import Q
 from .models import DBInstance, Query
 from .forms import DBInstanceForm, QueryForm
 from .utils import get_conn_data, parse_query, run_statement, compare_results
 import psycopg2
 import simplejson
+
 # Create your views here.
 
 connection_data = None
+
+
+def logout_view(request):
+    logout(request)
+    return redirect(reverse('accounts:login'))
+
 
 class AjaxableResponseMixin:
     """
     Mixin to add AJAX support to a form.
     Must be used with an object-based FormView (e.g. CreateView)
     """
+
     def form_invalid(self, form):
         response = super().form_invalid(form)
         if self.request.is_ajax():
@@ -57,7 +67,6 @@ class DBCreateView(LoginRequiredMixin, AjaxableResponseMixin, CreateView):
     success_url = reverse_lazy('metamorphic:db_list')
     form_class = DBInstanceForm
 
-
     def form_valid(self, form):
         user = User.objects.get(pk=self.request.user.id)
         form.instance.user = user
@@ -79,34 +88,35 @@ class DBDeleteView(LoginRequiredMixin, AjaxableResponseMixin, DeleteView):
     success_url = reverse_lazy('metamorphic:db_list')
 
 
-class DBListView(LoginRequiredMixin,ListView):
+class DBListView(LoginRequiredMixin, ListView):
     template_name = 'metamorphic/dbinstance.html'
-    #context_object_name = 'project_list'
+    # context_object_name = 'project_list'
     model = DBInstance
 
     def get_context_data(self):
         context = super(DBListView, self).get_context_data()
         logged_user = User.objects.get(username=self.request.user)
-        #all_instances = DBInstance.objects.prefetch_related("user").filter(Q(user=logged_user)).distinct()
+        # all_instances = DBInstance.objects.prefetch_related("user").filter(Q(user=logged_user)).distinct()
         all_instances = DBInstance.objects.all()
         context["all_db_instances"] = all_instances
         context["db_form"] = DBInstanceForm()
         return context
 
 
-class QueryListView(LoginRequiredMixin,ListView):
+class QueryListView(LoginRequiredMixin, ListView):
     template_name = 'metamorphic/query.html'
-    #context_object_name = 'project_list'
+    # context_object_name = 'project_list'
     model = Query
 
     def get_context_data(self):
         context = super(QueryListView, self).get_context_data()
         logged_user = User.objects.get(username=self.request.user)
-        #all_queries = DBInstance.objects.prefetch_related("user").filter(Q(user=logged_user)).distinct()
+        # all_queries = DBInstance.objects.prefetch_related("user").filter(Q(user=logged_user)).distinct()
         all_queries = Query.objects.all()
         context["all_queries"] = all_queries
-        #context["db_form"] = DBInstanceForm()
+        # context["db_form"] = DBInstanceForm()
         return context
+
 
 class QueryCreateView(LoginRequiredMixin, AjaxableResponseMixin, CreateView):
     model = Query
@@ -162,17 +172,16 @@ class RelationsView(LoginRequiredMixin, TemplateView):
 def get_query(request, **kwargs):
     if request.is_ajax():
         query = Query.objects.get(pk=kwargs['query_id'])
-        response = None
+        # response = None
+        transformations = list()
         get_conn_data(query.instance)
         original_result = run_statement(query.query_text)
         data = parse_query(query)
-        if data["changes"]:
-            changes_result = run_statement(data["changes"][0]["transformacion"])
+        for change in data["changes"]:
+            changes_result = run_statement(change)
             are_equal = compare_results(original_result, changes_result)
-            if data["nullable"] and not are_equal["status"]:
-                response = {"text": "Applying transformations", "nullable": data["nullable"], "status": 200, "print": data["changes"], "data": original_result["rows"],
-                            "columns": original_result["columns"]}
-        else:
-            response = {"text": "No changes to apply", "nullable": data["nullable"], "status": 200, "print": data["changes"], "data": original_result["rows"],
-                        "columns": original_result["columns"]}
-        return JsonResponse(response)
+            transformations.append({"query_equiv": change, "changes_result": changes_result, "equal": are_equal})
+        response = {"text": "Applying transformations", "status": 200,
+                    "data": original_result["rows"], "columns": original_result["columns"],
+                    "transformations": transformations}
+        return JsonResponse(response, safe=False)

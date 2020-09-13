@@ -66,28 +66,8 @@
                     </button>
                 </span>
             </div>    <div class="app-header__content">
-                <div class="app-header-left">
-                    <div class="search-wrapper">
-                        <div class="input-holder">
-                            <input type="text" class="search-input" placeholder="Type to search">
-                            <button class="search-icon"><span></span></button>
-                        </div>
-                        <button class="close"></button>
-                    </div>
-                    <ul class="header-menu nav">
-                        <li class="btn-group nav-item">
-                            <a href="javascript:void(0);" class="nav-link">
-                                <i class="nav-link-icon fa fa-edit"></i>
-                                {% trans 'Projects' %}
-                            </a>
-                        </li>
-                        <li class="dropdown nav-item">
-                            <a href="javascript:void(0);" class="nav-link">
-                                <i class="nav-link-icon fa fa-cog"></i>
-                                {% trans 'Settings' %}
-                            </a>
-                        </li>
-                    </ul>        </div>
+                <div class="app-header-left">      
+                </div>
                 <div class="app-header-right">
                     <div class="header-btn-lg pr-0">
                         <div class="widget-content p-0">
@@ -102,7 +82,8 @@
                                         <div tabindex="-1" role="menu" aria-hidden="true" class="dropdown-menu dropdown-menu-right">
                                             <button type="button" tabindex="0" class="dropdown-item">{% trans 'Settings' %}</button>
                                             <div tabindex="-1" class="dropdown-divider"></div>
-                                            <button type="button" tabindex="0" class="dropdown-item">{% trans 'Log Out' %}</button>
+                                            <button type="button" tabindex="0" class="dropdown-item"><a href="{% url 'metamorphic:logout' %}">{% trans 'Log Out' %}</a></button>
+
                                         </div>
                                     </div>
                                 </div>
@@ -155,7 +136,7 @@
                                 <li>
                                     <a href="{% url 'metamorphic:db_list' %}">
                                         <i class="metismenu-icon fa fa-database"></i>
-                                        {% trans 'Database Selector' %}
+                                        {% trans 'Database Instances' %}
                                     </a>
                                 </li>                                
                                 <li>
@@ -206,7 +187,8 @@
                                         </h3>
                                         <h4 class="lead" align="center">
                                             {% blocktrans %} 
-                                                Introduction, some instructions, etc
+                                                <p> This framework is a prototype to illustrate the concept of using metamorphic relations to detect errors in SQL queries.</p>
+                                                <p> To get started, first create a database instance and then add some SQL queries to it using the left panel.   
                                             {% endblocktrans %}
                                         </h4>
                                     </div>

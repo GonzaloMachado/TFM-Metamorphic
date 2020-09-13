@@ -7,90 +7,170 @@ import json
 
 global conn_data
 
+NODE_ANALYZERS = {}
+
 
 def parse_query(query):
     # connection = db_connection(connection_data)
     parsed_tree = parse(query.query_text)
     parsed_tree[0].get_nullable_state()
     # response = parsed_tree[0].nullable
+    analize_node(parsed_tree[0])
     response = {
         "nullable": parsed_tree[0].nullable,
-        "changes": search_transformations(parsed_tree[0])
+        "changes": parsed_tree[0].equivalent
     }
     return response
 
-"""SE USA UNA ESTRUCTURA AUXILIAR PARA REGRESAR EL ARBOL A SU ESADO ORIGINAL"""
-def search_transformations(statement):
-    aux = copy.deepcopy(statement)
+
+def get_case_for_node(node):
+    """Get specific case implementation for given `node` instance."""
+
+    try:
+        return NODE_ANALYZERS[type(node)]
+    except KeyError:
+        return None
+        # raise NotImplementedError("Printer for node %r is not implemented yet"
+        #                           % node.__class__.__name__)
+
+
+def node_analyzer(node_class):
+    """Decorator to change a specific case in sql statement"""
+
+    def decorator(impl):
+        assert node_class not in NODE_ANALYZERS
+        NODE_ANALYZERS[node_class] = impl
+        return impl
+
+    return decorator
+
+
+def analize_node(node):
+    case = get_case_for_node(node)
+    if case and node.nullable:
+        case(node)
+
+
+@node_analyzer(nodes.SelectStmt)
+def select_statement(node):
+    aux = copy.deepcopy(node)
     transformations = list()
-    if statement.target_list is not None:
-    # if statement.target_list is not None and statement.nullable_results:
-        for position, current_target in enumerate(statement.target_list):
+    if node.target_list is not None:
+        for position, current_target in enumerate(node.target_list):
             if isinstance(current_target.val, nodes.AExpr):
                 if current_target.val.name[0].val in ('+', '-', '*', '/', '||'):
-                    detected_case = transform_a_expr_select(current_target.val)
-                    aux.target_list[position] = detected_case
-                    save_change(aux, statement, transformations, 'B1/B2')
+                    if isinstance(current_target.val.lexpr, nodes.ColumnRef):
+                        transform_a_expr_select(current_target.val)
+                        for change in current_target.val.equivalent:
+                            aux.target_list[position] = copy.deepcopy(change)
+                            save_change(aux, node)
+                            aux = copy.deepcopy(node)
             else:
                 print("No cases found in target_list")
-    if statement.where_clause is not None:
-        if isinstance(statement.where_clause, nodes.AExpr):
-            a_expr_where(statement, aux, transformations, statement.where_clause)
-        elif isinstance(statement.where_clause, nodes.BoolExpr):
-            bool_expr_where(statement, aux, transformations, statement.where_clause)
-        elif isinstance(statement.where_clause, nodes.SubLink):
-            sub_link_where(statement, aux, transformations, statement.where_clause)
-    return transformations
+    if node.where_clause is not None:
+        analize_node(node.where_clause)
+        for change in node.where_clause.equivalent:
+            aux.where_clause = copy.deepcopy(change)
+            save_change(aux, node)
+
+
+@node_analyzer(nodes.AExpr)
+def a_expr(a_expr_node):
+    aux = copy.deepcopy(a_expr_node)
+    if a_expr_node.kind in (0, 6, 7, 10):
+        where_simple(a_expr_node)
+    if isinstance(a_expr_node.lexpr, list):
+        for position, item in enumerate(a_expr_node.lexpr):
+            analize_node(item)
+            for change in item.equivalent:
+                aux.lexpr[position] = copy.deepcopy(change)
+                save_change(aux, a_expr_node)
+                aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.lexpr, nodes.Node):
+        analize_node(a_expr_node.lexpr)
+        for change in a_expr_node.lexpr.equivalent:
+            aux.lexpr = copy.deepcopy(change)
+            save_change(aux, a_expr_node)
+            aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.rexpr, list):
+        for position, item in enumerate(a_expr_node.rexpr):
+            analize_node(item)
+            for change in item.equivalent:
+                aux.rexpr[position] = copy.deepcopy(change)
+                save_change(aux, a_expr_node)
+                aux = copy.deepcopy(a_expr_node)
+    if isinstance(a_expr_node.rexpr, nodes.Node):
+        analize_node(a_expr_node.rexpr)
+        for change in a_expr_node.rexpr.equivalent:
+            aux.rexpr = copy.deepcopy(change)
+            save_change(aux, a_expr_node)
+            aux = copy.deepcopy(a_expr_node)
+
+
+@node_analyzer(nodes.BoolExpr)
+def bool_expr(bool_expr_node):
+    aux = copy.deepcopy(bool_expr_node)
+    for position, arg in enumerate(bool_expr_node.args):
+        analize_node(arg)
+        for change in arg.equivalent:
+            aux.args[position] = copy.deepcopy(change)
+            save_change(aux, bool_expr_node)
+            aux = copy.deepcopy(bool_expr_node)
+    if bool_expr_node.boolop == 2:
+        for arg in bool_expr_node.args:
+            if isinstance(arg, nodes.SubLink):
+                if arg.sub_link_type == 2:
+                    where_compuesto_bool(bool_expr_node)
+                    # save_change(aux, statement, transformations, "A.2/A.3")
+                if arg.sub_link_type == 0:
+                    """Verificar ALIAS"""
+                    columns = node_to_str(arg.subselect.target_list).split(" ")
+                    where_exists(bool_expr_node, columns)
+                    # save_change(aux, statement, transformations, "A.4/A.5")
+
+
+@node_analyzer(nodes.SubLink)
+def sub_link(sub_link_node):
+    aux = copy.deepcopy(sub_link_node)
+    if sub_link_node.sub_link_type == 1:
+        where_compuesto(sub_link_node)
+    analize_node(sub_link_node.subselect)
+    for change in sub_link_node.subselect.equivalent:
+        aux.subselect = copy.deepcopy(change)
+        save_change(aux, sub_link_node)
+        aux = copy.deepcopy(sub_link_node)
+
 
 
 def transform_a_expr_select(target_node):
     """Cubre la relación B.1 y B.2 de la tabla 3"""
     if target_node.name[0].val == "||":
+        target_node.transformations_applied.append('B2')
         identity_element = "''"
     else:
+        target_node.transformations_applied.append('B1')
         identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
     if isinstance(target_node.lexpr, nodes.AExpr):
         equivalent = transform_a_expr_select(
-            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
+            target_node.lexpr) + f"{target_node.name[0].val} COALESCE({'.'.join(c.str for c in target_node.rexpr.fields)},{identity_element})"
+
     else:
-        equivalent = f"COALESCE({target_node.lexpr.fields[0].val},{identity_element}) {target_node.name[0].val} COALESCE({target_node.rexpr.fields[0].val},{identity_element})"
-    return equivalent
+        equivalent = f"COALESCE({'.'.join(c.str for c in target_node.lexpr.fields)},{identity_element}) {target_node.name[0].val} COALESCE({'.'.join(c.str for c in target_node.rexpr.fields)},{identity_element})"
+    target_node.equivalent.append(equivalent)
+    #return equivalent
 
 
-def a_expr_where(statement, aux, transformations, a_expr_node):
-    if isinstance(a_expr_node.rexpr, nodes.SubLink):
-        aux.where_clause = where_other(a_expr_node)
-        save_change(aux, statement, transformations, "A.7")
-        detected_case = search_transformations(a_expr_node.rexpr.subselect)
-        for item in detected_case:
-            aux.where_clause.rexpr.subselect = item['transformacion']
-            save_change(aux, statement, transformations, "Subquery")
-    else:
-        aux.where_clause = where_simple(statement.where_clause)
-        save_change(aux, statement, transformations, "B.3-B.6")
+"""CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
+def get_from_tables(from_clause):
+    tables = list()
+    for column in from_clause:
+        tables.append(column.relname)
+    return tables
 
 
-def bool_expr_where(statement, aux, transformations, bool_expr_node):
-    for arg in bool_expr_node.args:
-        if isinstance(arg, nodes.SubLink):
-            aux.where_clause = where_compuesto_bool(statement.where_clause)
-            save_change(aux, statement, transformations, "A.2/A.3")
-            detected_case = search_transformations(statement.where_clause.args[0].subselect)
-            for item in detected_case:
-                aux.where_clause.args[0].subselect = '('+item['transformacion']+')'
-                save_change(aux, statement, transformations, "Subquery")
-
-
-def sub_link_where(statement, aux, transformations, sub_link_node):
-    aux.where_clause = where_compuesto(sub_link_node)
-    save_change(aux, statement, transformations, "A.1/A.6")
-
-
-def save_change(aux, statement, transformations, info):
+def save_change(aux, node):
     serialized = printer.serialize([aux])
-    transformations.append(dict(transformacion=serialized, info=info))
-    aux.target_list = statement.target_list
-    aux.where_clause = statement.where_clause
+    node.equivalent.append(serialized)
 
 
 def node_to_str(target_node):
@@ -99,35 +179,32 @@ def node_to_str(target_node):
     return serializer.getvalue()
 
 
+"""CASO B4 ,B5 Y B6"""
 def where_simple(current_node):
     equivalent = ""
     string_value = node_to_str(current_node)
-    if isinstance(current_node, nodes.AExpr):
-        if current_node.kind == 0:
-            """Kind 0 es comp"""
-            equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 10 or current_node.kind == 11:
-            """Kind 10/11 es BETWEEN/NOT BETWEEN"""
-            if isinstance(current_node.rexpr, list):
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null"
-                for item in current_node.rexpr:
-                    equivalent += f" OR {node_to_str(item)} is null"
-            else:
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 6:
-            """Kind 6 es IN/NOT IN"""
-            if isinstance(current_node.rexpr, list):
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null"
-                for item in current_node.rexpr:
-                    equivalent += f" OR {node_to_str(item)} is null"
-            else:
-                equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-        elif current_node.kind == 7:
-            """Kind 7 es LIKE/NOT LIKE"""
-            equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
-    return equivalent
+    equivalent += string_value
+    # equivalent = string_value + f" OR {node_to_str(current_node.lexpr)} is null OR {node_to_str(current_node.rexpr)} is null"
+    if isinstance(current_node.lexpr, list):
+        for item in current_node.lexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.lexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.lexpr)} IS NULL"
+    if isinstance(current_node.rexpr, list):
+        for item in current_node.rexpr:
+            if not isinstance(item, nodes.AConst):
+                equivalent += f" OR {node_to_str(item)} IS NULL"
+    else:
+        if not isinstance(current_node.rexpr, nodes.AConst):
+            equivalent += f" OR {node_to_str(current_node.rexpr)} IS NULL"
+    current_node.transformations_applied.append('B3')
+    current_node.equivalent.append("(" + equivalent + ")")
+    #return "(" + equivalent + ")"
 
 
+"""CASO A1"""
 def where_compuesto(current_node):
     equivalent = ""
     equivalent2 = ""
@@ -135,7 +212,6 @@ def where_compuesto(current_node):
     testexpr = current_node.testexpr.fields[0].str
     if current_node.sub_link_type == 1:
         if current_node.oper_name[0].str == "<>":
-            # CASO A.6
             equivalent += f"{testexpr} NOT IN ({subselect_str})"
         else:
             # CASO A.1 OJO CON EL ALIAS 'AS EN EQUIVALENT1'
@@ -143,33 +219,12 @@ def where_compuesto(current_node):
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
-    return equivalent
+    current_node.transformations_applied.append('A1')
+    current_node.equivalent.append("(" + equivalent + ")")
+    # return "(" + equivalent + ")"
 
 
-def where_compuesto_bool(current_node):
-    equivalent = ""
-    equivalent2 = ""
-    subnode = current_node.args[0]
-    subselect_str = node_to_str(subnode.subselect)
-    if subnode.sub_link_type == 2:
-        testexpr = subnode.testexpr.fields[0].str
-        columns = node_to_str(subnode.subselect.target_list)
-        if subnode.oper_name is not None:
-            # CASO A.2 - HAY UN ANY
-            oper_name = subnode.oper_name[0].str
-            neg_sign = negate_operator(oper_name)
-            equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
-            equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns} )"
-        else:
-            # CASO A.3 - HAY UN IN
-            equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
-            # NOT EXISTS (QUEY AND X = COL)
-            # X <> ALL (QUERY)
-            equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
-    return equivalent
-
-
-"""CASO A.7"""
+"""CASO A.4"""
 def where_other(current_node):
     equivalent = ""
     subnode = current_node.rexpr
@@ -178,14 +233,77 @@ def where_other(current_node):
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
     equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
-    return equivalent
+    current_node.transformations_applied.append('A4')
+    current_node.equivalent.append("(" + equivalent + ")")
+    # return "(" + equivalent + ")"
+
+
+def where_compuesto_bool(current_node):
+    equivalent = ""
+    equivalent2 = ""
+    subnode = current_node.args[0]
+    subselect_str = node_to_str(subnode.subselect)
+    testexpr = subnode.testexpr.fields[0].str
+    columns = node_to_str(subnode.subselect.target_list)
+    if subnode.oper_name is not None:
+        # CASO A.2 - HAY UN ANY
+        oper_name = subnode.oper_name[0].str
+        neg_sign = negate_operator(oper_name)
+        equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
+        equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns})"
+        current_node.transformations_applied.append('A2')
+    else:
+        # CASO A.3 - HAY UN IN
+        equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
+        # NOT EXISTS (QUEY AND X = COL)
+        # X <> ALL (QUERY)
+        equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
+        current_node.transformations_applied.append('A3')
+    # return "(" + equivalent + ")"
+    current_node.equivalent.append("" + equivalent + "")
+    # current_node.equivalent.append("(" + equivalent2 + ")")
+
+
+def where_exists(current_node, columns):
+    equivalent = ""
+    columns_ref = list()
+    subselect_statement = copy.deepcopy(current_node.args[0].subselect)
+    subselect_where = current_node.args[0].subselect.where_clause
+    internal_tables = get_from_tables(current_node.args[0].subselect.from_clause)
+    if isinstance(subselect_where, nodes.AExpr):
+        oper = subselect_where.name[0].str
+        if isinstance(subselect_where.lexpr, nodes.ColumnRef):
+            columns_ref.append(subselect_where.lexpr.fields)
+        if isinstance(subselect_where.rexpr, nodes.ColumnRef):
+            columns_ref.append(subselect_where.rexpr.fields)
+            subselect_statement.where_clause = None
+    elif isinstance(subselect_where, nodes.BoolExpr) and subselect_where.boolop == 0:
+        arg = subselect_where.args[0]
+        oper = arg.name[0].str
+        if isinstance(arg.lexpr, nodes.ColumnRef):
+            columns_ref.append(arg.lexpr.fields)
+        if isinstance(arg.rexpr, nodes.ColumnRef):
+            columns_ref.append(arg.rexpr.fields)
+        subselect_statement.where_clause = subselect_where.args[1]
+    for column in columns_ref:
+        if column[0].str not in internal_tables:
+            if oper == '=':
+                current_node.transformations_applied.append('A5')
+                equivalent = f"{column[1].str} NOT IN ({node_to_str(subselect_statement)})"
+            else:
+                current_node.transformations_applied.append('A6')
+                equivalent2 = f"{column[1].str} {negate_operator(oper)} ALL ({node_to_str(subselect_statement)})"
+                """A.7"""
+                equivalent = f"NOT {column[1].str} {oper} ANY ({node_to_str(subselect_statement)})"
+
+    current_node.equivalent.append("" + equivalent + "")
 
 
 def negate_operator(operator):
     defined_operators = ['<', '<=', '>', '>=', '=', '<>']
-    negate_operators = ['>=', '>', '<=', '<', '<>', '=']
+    negated_operators = ['>=', '>', '<=', '<', '<>', '=']
     index_search = defined_operators.index(operator)
-    return negate_operators[index_search]
+    return negated_operators[index_search]
 
 
 def get_conn_data(db_instance):
@@ -206,7 +324,7 @@ def check_nullable(column_name, obj):
         conn = psycopg2.connect(**conn_data)
         # Create a new cursor
         cur = conn.cursor()
-        postgreSQL_select_Query = "select c.column_name from information_schema.columns c where c.table_schema='public' and c.is_nullable='NO' and c.column_name=%s"
+        postgreSQL_select_Query = "select c.column_name from information_schema.columns c where c.table_schema='public' and c.is_nullable='YES' and c.column_name=%s"
 
         cur.execute(postgreSQL_select_Query, (column_name,))
         nullables_columns = cur.fetchall()
@@ -258,7 +376,7 @@ def run_statement(query):
         # cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         postgreSQL_select_Query = query
         cur.execute(postgreSQL_select_Query)
-        rows = [dict((cur.description[i][0], value if value is not None else 'Null')
+        rows = [dict((cur.description[i][0], value if value is not None else '[null]')
                      for i, value in enumerate(row)) for row in cur.fetchall()]
         # rows2= [json.dumps(rows)]
         columns = [dict(data=column.name, name=column.name) for column in cur.description]

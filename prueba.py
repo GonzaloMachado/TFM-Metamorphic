@@ -26,12 +26,16 @@ def main():
     # query_string = "select colA from T2 where NOT x > any (select colB from T2 where c>2)"
     # query_string = "select miAlias.colA + miAlias.colB from T2 as miAlias where X NOT IN (select colB from T2 where c>2)"
     # query_string = "select colA + colB from T2 where X NOT IN (select colB from T2 where c>2)"
-    query_string = "select col1 from T1 where not exists (select col2 from T2 where T1.col1 < T2.col2 and c)"
+    # query_string = "select col1 from T1 where not exists (select col2 from T2 where T1.col1 < T2.col2 and c)"
     # query_string = "select colA from T2 as A where x <> all (select ka || level from T1 where a<2)"
     # query_string = "select colA from t1 where x not in (1,2,3,4)"
     # query_string = "select colA from T2 where a < (select a+b from ta where x > y)"
     # query_string = "select colA+colB from T2 where x > (select a||level from ta)"
-    # query_string = "select colA  from t2 where not exists (select col from t where c and E.colA = col )"
+    # query_string = "select colA  from t2 where not exists (select col from t where c and E.colA = col)"
+    # query_string = "SELECT d.coddish, d.name, i.name from dishes AS d, recipes AS r, ingredient AS i where d.codDish= r.coddish and r.coding=i.coding and amount >= stock"
+    query_string = "select coddish+name, category from dishes where category not in ('Main','Starter')"
+    # query_string = "select name from Employees e where e.idemp NOT IN (select distinct idemp from dishes);"
+    # query_string = "SELECT  i.name, i.stock, r1.amount from  ingredient AS i, recipes AS r1 where r1.coding=i.coding and stock < (select min(amount) from recipes r2 where r2.coding =r1.coding)"
     parsed_tree = parse(query_string)
     print(printer.serialize([parsed_tree[0]]))
     #equivalent = select_match_case_3(parsed_tree[0], None, None, parsed_tree[0])
@@ -71,6 +75,7 @@ def analize_node(node):
     case = get_case_for_node(node)
     if case:
         case(node)
+
 
 @node_analyzer(nodes.SelectStmt)
 def select_statement(node):
@@ -162,12 +167,13 @@ def sub_link(sub_link_node):
         aux = copy.deepcopy(sub_link_node)
 
 
-
 def transform_a_expr_select(target_node):
     """Cubre la relación B.1 y B.2 de la tabla 3"""
     if target_node.name[0].val == "||":
+        target_node.transformations_applied.append('B2')
         identity_element = "''"
     else:
+        target_node.transformations_applied.append('B1')
         identity_element = 1 if target_node.name[0].val == ("*" or "/") else 0
     if isinstance(target_node.lexpr, nodes.AExpr):
         equivalent = transform_a_expr_select(
@@ -218,11 +224,12 @@ def where_simple(current_node):
     else:
         if not isinstance(current_node.rexpr, nodes.AConst):
             equivalent += f" OR {node_to_str(current_node.rexpr)} IS NULL"
+    current_node.transformations_applied.append('B3')
     current_node.equivalent.append("(" + equivalent + ")")
     #return "(" + equivalent + ")"
 
 
-"""CASO A1 Y A6"""
+"""CASO A1"""
 def where_compuesto(current_node):
     equivalent = ""
     equivalent2 = ""
@@ -230,7 +237,6 @@ def where_compuesto(current_node):
     testexpr = current_node.testexpr.fields[0].str
     if current_node.sub_link_type == 1:
         if current_node.oper_name[0].str == "<>":
-            # CASO A.6
             equivalent += f"{testexpr} NOT IN ({subselect_str})"
         else:
             # CASO A.1 OJO CON EL ALIAS 'AS EN EQUIVALENT1'
@@ -238,11 +244,12 @@ def where_compuesto(current_node):
             neg_sign = negate_operator(current_node.oper_name[0].str)
             equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
+    current_node.transformations_applied.append('A1')
     current_node.equivalent.append("(" + equivalent + ")")
     # return "(" + equivalent + ")"
 
 
-"""CASO A.7"""
+"""CASO A.4"""
 def where_other(current_node):
     equivalent = ""
     subnode = current_node.rexpr
@@ -251,6 +258,7 @@ def where_other(current_node):
     oper_name = current_node.name[0].str
     neg_sign = negate_operator(oper_name)
     equivalent += f"{testexpr} IS NULL OR ({subselect_str}) IS NULL OR {testexpr} {oper_name} ({subselect_str})"
+    current_node.transformations_applied.append('A4')
     current_node.equivalent.append("(" + equivalent + ")")
     # return "(" + equivalent + ")"
 
@@ -268,12 +276,14 @@ def where_compuesto_bool(current_node):
         neg_sign = negate_operator(oper_name)
         equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
         equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns})"
+        current_node.transformations_applied.append('A2')
     else:
         # CASO A.3 - HAY UN IN
         equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
         # NOT EXISTS (QUEY AND X = COL)
         # X <> ALL (QUERY)
         equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
+        current_node.transformations_applied.append('A3')
     # return "(" + equivalent + ")"
     current_node.equivalent.append("" + equivalent + "")
     # current_node.equivalent.append("(" + equivalent2 + ")")
@@ -303,10 +313,14 @@ def where_exists(current_node, columns):
     for column in columns_ref:
         if column[0].str not in internal_tables:
             if oper == '=':
+                current_node.transformations_applied.append('A5')
                 equivalent = f"{column[1].str} NOT IN ({node_to_str(subselect_statement)})"
             else:
-                equivalent = f"NOT {column[1].str} {oper} ANY ({node_to_str(subselect_statement)})"
+                current_node.transformations_applied.append('A6')
                 equivalent2 = f"{column[1].str} {negate_operator(oper)} ALL ({node_to_str(subselect_statement)})"
+                """A.7"""
+                equivalent = f"NOT {column[1].str} {oper} ANY ({node_to_str(subselect_statement)})"
+
     current_node.equivalent.append("" + equivalent + "")
 
 

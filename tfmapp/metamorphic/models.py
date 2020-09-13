@@ -31,7 +31,7 @@ class Query(models.Model):
     query_id = models.CharField(_('Query ID'), max_length=200, unique="True")
     query_text = models.CharField(_('Query'), max_length=1000)
     instance = models.ForeignKey(DBInstance, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, verbose_name=_('User'), on_delete=models.CASCADE)
+    user = models.ForeignKey(User, verbose_name=_('Created_by'), on_delete=models.CASCADE)
 
     def __str__(self):
         return self.query_id
