@@ -741,8 +741,10 @@ def sub_link(node, output):
         for operator in node.oper_name:
             output.write(' ')
             output.write(operator.str)
-    output.write(' ')
-    output.write((' EXISTS ', ' ALL ', ' ANY ', '', '')[node.sub_link_type])
+            output.write((' EXISTS ', ' ALL ', ' ANY ', '', '')[node.sub_link_type])
+    else:
+        output.write((' EXISTS ', ' ALL ', ' IN ', '', '')[node.sub_link_type])
+    # output.write(' ')
     output.write('(')
     with output.push_indent():
         output.print_node(node.subselect)

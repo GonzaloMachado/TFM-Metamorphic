@@ -160,12 +160,20 @@ def transform_a_expr_select(target_node):
     #return equivalent
 
 
+def get_column(target_list):
+    for item in target_list:
+        if isinstance(item.val, nodes.FuncCall):
+            return node_to_str(item.val.args)
+        else:
+            return node_to_str(target_list)
+
 """CASO A.4 Y A.5 Hay que usar las columnas externas e internas y ver el ALIAS"""
 def get_from_tables(from_clause):
     tables = list()
     for column in from_clause:
         tables.append(column.relname)
     return tables
+
 
 
 def save_change(aux, node):
@@ -215,12 +223,16 @@ def where_compuesto(current_node):
             equivalent += f"{testexpr} NOT IN ({subselect_str})"
         else:
             # CASO A.1 OJO CON EL ALIAS 'AS EN EQUIVALENT1'
-            columns = node_to_str(current_node.subselect.target_list)
-            neg_sign = negate_operator(current_node.oper_name[0].str)
-            equivalent += f"NOT EXISTS( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
+            columns = get_column(current_node.subselect.target_list)
+            operator = current_node.oper_name[0].str
+            neg_sign = negate_operator(operator)
+            if current_node.subselect.where_clause:
+                equivalent += f"NOT EXISTS ( {subselect_str}  AND {testexpr}  {neg_sign}  {columns})"
+            else:
+                equivalent += f"NOT EXISTS ( {subselect_str}  WHERE {testexpr}  {neg_sign}  {columns})"
             equivalent2 += f"NOT {testexpr}  {neg_sign} ANY ({subselect_str})"
     current_node.transformations_applied.append('A1')
-    current_node.equivalent.append("(" + equivalent + ")")
+    current_node.equivalent.extend((equivalent, equivalent2))
     # return "(" + equivalent + ")"
 
 
@@ -241,26 +253,40 @@ def where_other(current_node):
 def where_compuesto_bool(current_node):
     equivalent = ""
     equivalent2 = ""
+    equivalent3 = ""
     subnode = current_node.args[0]
     subselect_str = node_to_str(subnode.subselect)
-    testexpr = subnode.testexpr.fields[0].str
-    columns = node_to_str(subnode.subselect.target_list)
+    testexpr = node_to_str(subnode.testexpr)
+    # columns = node_to_str(subnode.subselect.target_list)
+    columns = get_column(subnode.subselect.target_list)
     if subnode.oper_name is not None:
         # CASO A.2 - HAY UN ANY
         oper_name = subnode.oper_name[0].str
         neg_sign = negate_operator(oper_name)
-        equivalent += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
-        equivalent2 += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns})"
-        current_node.transformations_applied.append('A2')
+        # equivalent2 += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
+        if subnode.subselect.where_clause:
+            equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} {oper_name} {columns})"
+        else:
+            equivalent += f"NOT EXISTS ({subselect_str} WHERE {testexpr} {oper_name} {columns})"
+        current_node.transformations_applied.extend(('A2','A5'))
+        if neg_sign == '=':
+            equivalent2 += f"{testexpr}  NOT IN ({subselect_str})"
+        else:
+            equivalent2 += f"{testexpr}  {neg_sign} ALL ({subselect_str})"
     else:
         # CASO A.3 - HAY UN IN
-        equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
-        # NOT EXISTS (QUEY AND X = COL)
-        # X <> ALL (QUERY)
-        equivalent2 += f"{testexpr} <> ALL ({subselect_str})"
+        if subnode.subselect.where_clause:
+            equivalent += f"NOT EXISTS ({subselect_str} AND {testexpr} = {columns})"
+        else:
+            equivalent += f"NOT EXISTS ({subselect_str} WHERE {testexpr} = {columns})"
+        # ADEMAS CASO A6
+        equivalent2 = f"{testexpr} {negate_operator('=')} ALL ({node_to_str(subselect_str)})"
+        # ADEMAS CASO A7
+        equivalent3 = f"NOT {testexpr} = ANY ({node_to_str(subselect_str)})"
         current_node.transformations_applied.append('A3')
+        # current_node.equivalent.append(equivalent3)
     # return "(" + equivalent + ")"
-    current_node.equivalent.append("" + equivalent + "")
+    current_node.equivalent.extend(("" + equivalent + "", equivalent2, equivalent3))
     # current_node.equivalent.append("(" + equivalent2 + ")")
 
 
@@ -289,12 +315,14 @@ def where_exists(current_node, columns):
         if column[0].str not in internal_tables:
             if oper == '=':
                 current_node.transformations_applied.append('A5')
-                equivalent = f"{column[1].str} NOT IN ({node_to_str(subselect_statement)})"
+                equivalent = f"{column[0].str} NOT IN ({node_to_str(subselect_statement)})"
             else:
                 current_node.transformations_applied.append('A6')
-                equivalent2 = f"{column[1].str} {negate_operator(oper)} ALL ({node_to_str(subselect_statement)})"
+                equivalent2 = f"{column[0].str} {negate_operator(oper)} ALL ({node_to_str(subselect_statement)})"
+                current_node.equivalent.append("" + equivalent2 + "")
                 """A.7"""
-                equivalent = f"NOT {column[1].str} {oper} ANY ({node_to_str(subselect_statement)})"
+                equivalent = f"NOT {column[0].str} {oper} ANY ({node_to_str(subselect_statement)})"
+                current_node.transformations_applied.append('A7')
 
     current_node.equivalent.append("" + equivalent + "")
 

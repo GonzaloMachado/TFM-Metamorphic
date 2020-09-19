@@ -179,8 +179,9 @@ def get_query(request, **kwargs):
         data = parse_query(query)
         for change in data["changes"]:
             changes_result = run_statement(change)
-            are_equal = compare_results(original_result, changes_result)
-            transformations.append({"query_equiv": change, "changes_result": changes_result, "equal": are_equal})
+            if changes_result["status"]:
+                are_equal = compare_results(original_result, changes_result)
+                transformations.append({"query_equiv": change, "changes_result": changes_result, "equal": are_equal})
         response = {"text": "Applying transformations", "status": 200,
                     "data": original_result["rows"], "columns": original_result["columns"],
                     "transformations": transformations}

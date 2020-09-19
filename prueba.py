@@ -33,9 +33,10 @@ def main():
     # query_string = "select colA+colB from T2 where x > (select a||level from ta)"
     # query_string = "select colA  from t2 where not exists (select col from t where c and E.colA = col)"
     # query_string = "SELECT d.coddish, d.name, i.name from dishes AS d, recipes AS r, ingredient AS i where d.codDish= r.coddish and r.coding=i.coding and amount >= stock"
-    query_string = "select coddish+name, category from dishes where category not in ('Main','Starter')"
+    # query_string = "select coddish+name, category from dishes where category not in ('Main','Starter')"
     # query_string = "select name from Employees e where e.idemp NOT IN (select distinct idemp from dishes);"
     # query_string = "SELECT  i.name, i.stock, r1.amount from  ingredient AS i, recipes AS r1 where r1.coding=i.coding and stock < (select min(amount) from recipes r2 where r2.coding =r1.coding)"
+    query_string = "select name from employees e where not exists (select * from dishes d1 where idemp=e.idemp and price = (select distinct price from dishes d2 where d1.category=d2.category and NOT d2.price < ANY (select price from dishes d3 where d3.category=d2.category)));  "
     parsed_tree = parse(query_string)
     print(printer.serialize([parsed_tree[0]]))
     #equivalent = select_match_case_3(parsed_tree[0], None, None, parsed_tree[0])

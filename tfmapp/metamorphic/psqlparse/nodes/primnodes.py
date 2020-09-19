@@ -149,7 +149,7 @@ class SubLink(Expr):
             self.nullable = self.subselect.nullable_contents
         """Type:Op-All, NOT IN Toma en cuenta results y contents"""
         if self.sub_link_type == 1:
-            self.nullable = self.subselect.nullable_results | self.subselect.nullable_contents | self.textexpr.nullable
+            self.nullable = self.subselect.nullable_results | self.subselect.nullable_contents | self.testexpr.nullable
         """Type:Op-Any, IN Toma en cuenta contents"""
         if self.sub_link_type == 2:
             self.nullable =  self.subselect.nullable_contents | self.testexpr.nullable
